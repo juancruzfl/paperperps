@@ -34,7 +34,7 @@ test-server:
 	cd server && go vet ./... && go test ./...
 
 test-web:
-	cd web && npm run lint && npm run build
+	cd web && npm run lint && npm test && npm run build
 
 build: ## Build the frontend and server binary
 	cd web && npm run build

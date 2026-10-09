@@ -15,7 +15,10 @@ server/   Go backend: API, websocket, trading engine; serves the built frontend
   internal/config/       env configuration
   internal/db/           Postgres pool + embedded goose migrations
   internal/leader/       advisory lock so only one engine runs
-  internal/httpapi/      HTTP routes, health check, SPA serving
+  internal/hyperliquid/  read-only Hyperliquid info + websocket client
+  internal/market/       live market state (books, trades, tickers), candle cache
+  internal/hub/          topic fan-out to browser websockets
+  internal/httpapi/      HTTP routes, /ws, health check, SPA serving
 web/      React + TypeScript + Vite frontend
 docs/     plan and deploy docs
 ```

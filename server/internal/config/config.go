@@ -55,7 +55,7 @@ func Load() (Config, error) {
 		DatabaseURL:     os.Getenv("DATABASE_URL"),
 		WebDir:          env("WEB_DIR", ""),
 		Version:         env("RAILWAY_GIT_COMMIT_SHA", "dev"),
-		HLNetwork:       strings.ToLower(env("HL_NETWORK", NetworkTestnet)),
+		HLNetwork:       strings.ToLower(env("HL_NETWORK", NetworkMainnet)),
 		Markets:         parseList(env("MARKETS", DefaultMarkets)),
 		LiquidationMode: strings.ToLower(env("LIQUIDATION_MODE", LiquidationForfeit)),
 	}
@@ -109,7 +109,8 @@ func parseList(s string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, part := range strings.Split(s, ",") {
-		coin := strings.ToUpper(strings.TrimSpace(part))
+		// Case matters: Hyperliquid lists coins like kPEPE.
+		coin := strings.TrimSpace(part)
 		if coin != "" && !seen[coin] {
 			seen[coin] = true
 			out = append(out, coin)

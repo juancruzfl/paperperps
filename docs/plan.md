@@ -1,8 +1,8 @@
 # PaperPerps — Plan
 
 PaperPerps is a paper-trading clone of the Hyperliquid perpetuals exchange. It uses live
-Hyperliquid **testnet** market data, but every order is filled by our own simulation engine.
-Nothing is placed on-chain.
+Hyperliquid market data (public, read-only, from **mainnet** by default), but every order is
+filled by our own simulation engine. Nothing is placed on-chain.
 
 **Core promises**
 
@@ -26,8 +26,8 @@ Nothing is placed on-chain.
 
 | Topic | Decision |
 |---|---|
-| Execution | **Simulated fills** against the live testnet order book and trades. No orders hit testnet. |
-| Market data | **Testnet by default**, with a **mainnet fallback** (public read-only data) if testnet feels unrealistic. Switched by config (§3.1). |
+| Execution | **Simulated fills** against the live Hyperliquid order book and trades. No orders are placed on any network. |
+| Market data | **Mainnet public data by default** (read-only, nothing signed). Testnet was the original plan, but measurements showed its books are too thin (M1 status, §9). `HL_NETWORK=testnet` still works. |
 | Markets | **Top 20 perps** (§4.1). |
 | Identity | **Anonymous account + recovery key.** The account is created on first visit, its ID is kept in `localStorage`, and a secret key or link restores it on another device. |
 | v1 scope | Trading terminal + **leaderboard**, **account reset**, **liquidations & funding**, **advanced orders** (TP/SL, reduce-only, post-only/IOC, triggers). |
@@ -49,11 +49,11 @@ Nothing is placed on-chain.
 4. The user lands on the default market (BTC-PERP), ready to trade.
 
 ### Main trading view (modeled on Hyperliquid's layout)
-- **Market selector:** every perp listed in testnet `meta`, with price, 24h change, volume
+- **Market selector:** the 20 enabled perps (§4.1), with price, 24h change, volume
   and funding.
 - **Chart:** candles from `candleSnapshot` plus a live `candle` subscription, drawn with
   TradingView `lightweight-charts`.
-- **Order book and recent trades:** the live testnet L2 book and trade tape.
+- **Order book and recent trades:** the live Hyperliquid L2 book and trade tape.
 - **Order form:** Market / Limit / Stop Market / Stop Limit / TP / SL; leverage slider (capped
   at the asset's `maxLeverage`); cross/isolated toggle; reduce-only, post-only, IOC/GTC; TP/SL
   attached at entry; size in coin or USD; projected liquidation price and fee estimate.
@@ -76,7 +76,7 @@ Nothing is placed on-chain.
 
 ```
                  ┌────────────────────────── Hyperliquid TESTNET ─────────────────────────┐
-                 │  wss://api.hyperliquid-testnet.xyz/ws   https://.../info (REST)         │
+                 │  wss://api.hyperliquid.xyz/ws           https://.../info (REST)         │
                  └───────────────┬────────────────────────────────────┬───────────────────┘
                                  │ l2Book, trades, allMids,            │ meta, metaAndAssetCtxs,
                                  │ activeAssetCtx, candle              │ candleSnapshot, fundingHistory
@@ -102,7 +102,7 @@ Nothing is placed on-chain.
 ### 3.1 Market Data Service
 - Opens **one** upstream websocket to Hyperliquid and subscribes to `l2Book`, `trades` and
   `activeAssetCtx` for each of the 20 enabled perps, plus `allMids`.
-- **Data source is config:** `HL_NETWORK=testnet` (default) or `HL_NETWORK=mainnet`. Both
+- **Data source is config:** `HL_NETWORK=mainnet` (default) or `HL_NETWORK=testnet`. Both
   use only the public, unauthenticated info/ws API, with no keys and no signing. Switching
   needs a restart only; orders, positions and ledger are unaffected. Prices can jump when
   switching, so restart while the market is halted: block new orders, recompute margin on
@@ -114,6 +114,9 @@ Nothing is placed on-chain.
 - Reconnects with backoff. If upstream goes stale (no updates for X seconds), the market is
   marked **halted**: new orders are rejected and liquidations pause, so stale data never
   causes a liquidation.
+- **Runs on every instance, not just the engine leader.** The feed is read-only, so the
+  standby instance also gets live data during a deploy, and clients connected to it see
+  live prices.
 - **Market data is proxied to clients** instead of each browser connecting to HL directly.
   Users then see exactly the book we fill against, and we stay within HL's per-IP
   connection and subscription limits.
@@ -171,8 +174,9 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
   - **Initial list (from mainnet 24h volume on 2026-10-09):** `BTC, ETH, HYPE, NEAR, SOL,
     PUMP, VVV, WLD, LIT, SUI, ZRO, DOGE, MET, PONS, ONDO, ADA, TAO, FARTCOIN, XPL, XMR`.
     ZEC, XRP, ENA, STRK and UNI ranked in the top 20 on mainnet but aren't listed on
-    testnet, so they were skipped. That gap is one more reason to consider the mainnet
-    fallback.
+    testnet, so they were skipped. Since the default is now mainnet, they could be added.
+    Keeping every coin valid on both networks means switching networks never strands an
+    open position.
 - Each market uses its `szDecimals`, tick/price rules and `maxLeverage` from the **data
   network's** `meta`. The two networks don't always agree: on 2026-10-09 SOL was 20× on
   mainnet but 10× on testnet, and NEAR was 10× on mainnet but 20× on testnet. Leverage
@@ -195,7 +199,7 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
 - If the order would cross the book on arrival, it executes like a taker up to its limit
   price, and any remainder rests (GTC), is cancelled (IOC), or the order is rejected
   (post-only / ALO).
-- **Resting fills:** a resting order fills when the testnet **trade tape trades through**
+- **Resting fills:** a resting order fills when the live **trade tape trades through**
   its price (strictly better than the limit), or when the best opposite quote crosses it.
   A trade that only *touches* the price doesn't fill it, because we can't know our place in
   the queue. This rule is conservative on purpose.
@@ -255,7 +259,7 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
 - Hourly, on the HL schedule. Payments are idempotent, keyed by
   `(account, coin, funding_hour)`, so a restart or redeploy near the hour can't charge twice.
   Each position is charged or credited
-  `size × oraclePrice × fundingRate`, using the live testnet funding rate from
+  `size × oraclePrice × fundingRate`, using the live funding rate from
   `activeAssetCtx` / `metaAndAssetCtxs`.
 - Longs pay shorts when the rate is positive.
 - Every payment is recorded in the ledger and shown in Funding History.
@@ -350,7 +354,7 @@ Postgres). Never floats.
 | DB | Postgres | pgx + sqlc for queries; migrations via goose |
 | Local dev | Docker Compose (Postgres) + `go run` + `vite dev` | |
 | Hosting | **Railway** + **Porkbun** domain | See §8.1 |
-| Testing | Go unit tests on engine math; replay tests from recorded testnet market data | |
+| Testing | Go unit tests on engine math; replay tests from recorded market data | |
 
 ### 8.1 Deployment (Railway + Porkbun)
 
@@ -419,6 +423,24 @@ handoff, production image). Deploy deferred by the owner: domain purchase and Ra
 **M1 — Market data**
 Upstream testnet ws ingestion, `MarketState`, client ws fan-out, market list + chart + book +
 trades in the UI. *Done when: the UI shows a live testnet market with no account.*
+*Status (2026-10-09): done. Client protocol: websocket `/ws` with topics `markets`,
+`book:<coin>` and `trades:<coin>`. Subscribing returns a snapshot, then updates follow.
+Chart history comes from `GET /api/markets/{coin}/candles?interval=` (cached 10s), and the
+client extends the last bar from the trade stream.*
+
+*Testnet vs mainnet, measured side by side on 2026-10-09 (BTC):*
+
+| | Testnet | Mainnet |
+|---|---|---|
+| 24h volume | $2.1M | $1.9B |
+| Top of book | 0.001–0.3 BTC per level; 2nd level ~$45 away | 3–6 BTC per level, $1 apart |
+| Trades | 0 in 15–25s windows | ~1 batch/second |
+| Funding (hourly) | −0.057% to −0.060% (~ −500%/yr) | +0.0002% to +0.001% |
+| Mark vs oracle | ~0.5% apart | ~0.04% apart |
+| Price vs real BTC | ~0.4% off | the real price |
+
+*Testnet is unrealistic for this product: fills would be poor, limit orders would rarely
+fill because there are almost no trades, and funding would drain longs. The owner switched the default to `HL_NETWORK=mainnet` on 2026-10-09.*
 
 **M2 — Accounts & basic trading**
 Anonymous accounts, recovery key, market + limit (GTC) orders, cross margin, positions,
@@ -441,8 +463,7 @@ limits, empty/error states, mobile layout.
 **M6 — Launch hardening**
 Load test (many accounts × resting orders), restart/redeploy recovery (advisory lock
 handoff, idempotent funding), monitoring/alerts on upstream staleness, Postgres backups,
-disclaimer copy, and an A/B check of testnet vs mainnet data to decide the default
-`HL_NETWORK`.
+and disclaimer copy.
 
 ---
 
@@ -450,7 +471,7 @@ disclaimer copy, and an A/B check of testnet vs mainnet data to decide the defau
 
 | Risk | Mitigation |
 |---|---|
-| **Testnet data quality:** thin books, odd prices, mark/oracle quirks, occasional testnet resets or downtime. This can make the simulation feel unlike real trading. | Make the data source configurable (`HL_NETWORK` = `testnet` or `mainnet`) so we can switch to mainnet public data (still read-only, no signing) if testnet is unusable. Stale-data halts. |
+| **Upstream data outages** (HL API downtime or disconnects) | Automatic reconnect with backoff; markets flagged stale after 30s; stale-data halts for fills and liquidations (M3). Testnet's data quality risk is avoided by defaulting to mainnet. |
 | Fill realism (no queue position, no market impact) | Conservative trade-through rule for limit orders; per-snapshot level depletion; document the simplifications in a "How fills work" page. |
 | HL API rate/subscription limits | One upstream connection shared by all users; cache candles server-side. |
 | Leaderboard gaming via throwaway accounts (absolute PnL rewards max-leverage lottery bets across many accounts) | Per-IP creation limits; eligibility thresholds; resets don't erase losses (§5.3). |
@@ -477,3 +498,5 @@ All open questions are resolved.
   - Liquidation fee: forfeit the remaining margin, modeled on HL's backstop (§4.6).
     Recommended by Claude; the owner deferred.
   - Domain: `paperperps.lol`, not yet purchased.
+  - Deployment deferred.
+  - **Market data defaults to mainnet** after the side-by-side measurement in M1.

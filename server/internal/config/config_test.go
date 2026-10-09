@@ -14,8 +14,8 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.HLNetwork != NetworkTestnet {
-		t.Errorf("HLNetwork = %q, want testnet", c.HLNetwork)
+	if c.HLNetwork != NetworkMainnet {
+		t.Errorf("HLNetwork = %q, want mainnet", c.HLNetwork)
 	}
 	if len(c.Markets) != 20 {
 		t.Errorf("len(Markets) = %d, want 20", len(c.Markets))
@@ -32,24 +32,24 @@ func TestLoadDefaults(t *testing.T) {
 	if c.LiquidationMode != LiquidationForfeit {
 		t.Errorf("LiquidationMode = %q, want forfeit", c.LiquidationMode)
 	}
-	if c.HLInfoURL() != "https://api.hyperliquid-testnet.xyz/info" {
+	if c.HLInfoURL() != "https://api.hyperliquid.xyz/info" {
 		t.Errorf("HLInfoURL = %q", c.HLInfoURL())
 	}
 }
 
-func TestLoadMainnetAndMarkets(t *testing.T) {
+func TestLoadTestnetAndMarkets(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("HL_NETWORK", "MAINNET")
-	t.Setenv("MARKETS", " btc, eth ,,BTC ")
+	t.Setenv("HL_NETWORK", "TESTNET")
+	t.Setenv("MARKETS", " BTC, kPEPE ,,BTC ")
 
 	c, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.HLWebsocketURL() != "wss://api.hyperliquid.xyz/ws" {
+	if c.HLWebsocketURL() != "wss://api.hyperliquid-testnet.xyz/ws" {
 		t.Errorf("HLWebsocketURL = %q", c.HLWebsocketURL())
 	}
-	if want := []string{"BTC", "ETH"}; !slices.Equal(c.Markets, want) {
+	if want := []string{"BTC", "kPEPE"}; !slices.Equal(c.Markets, want) {
 		t.Errorf("Markets = %v, want %v", c.Markets, want)
 	}
 }

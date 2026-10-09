@@ -16,7 +16,10 @@ import (
 	"github.com/juancruzfl/paperperps/server/internal/config"
 	"github.com/juancruzfl/paperperps/server/internal/db"
 	"github.com/juancruzfl/paperperps/server/internal/httpapi"
+	"github.com/juancruzfl/paperperps/server/internal/hub"
+	"github.com/juancruzfl/paperperps/server/internal/hyperliquid"
 	"github.com/juancruzfl/paperperps/server/internal/leader"
+	"github.com/juancruzfl/paperperps/server/internal/market"
 )
 
 func main() {
@@ -45,12 +48,28 @@ func run() error {
 		return err
 	}
 
+	// Market data is read-only, so it runs on every instance, not only the engine leader.
+	info := hyperliquid.NewInfoClient(cfg.HLInfoURL())
+	var markets *market.Service
+	h := hub.New(func(topic string) (any, bool) { return markets.Snapshot(topic) })
+	markets = market.New(market.Options{Markets: cfg.Markets, Info: info, Publisher: h})
+	go markets.Run(ctx, cfg.HLWebsocketURL())
+
 	engine := &httpapi.EngineState{}
 	srv := &http.Server{
-		Addr:              net.JoinHostPort("", cfg.Port),
-		Handler:           httpapi.New(cfg, pool, engine),
+		Addr: net.JoinHostPort("", cfg.Port),
+		Handler: httpapi.New(httpapi.Deps{
+			Config:  cfg,
+			Pool:    pool,
+			Engine:  engine,
+			Market:  markets,
+			Candles: market.NewCandles(info, 10*time.Second),
+			Hub:     h,
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		// Shutdown doesn't close websockets, so cancel their contexts when we stop.
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
 	// Any of these failing stops the process; Railway restarts it.
@@ -75,8 +94,7 @@ func run() error {
 		}
 		engine.SetLeader(true)
 		slog.Info("engine lock acquired")
-		// TODO(M1): start the market data service and engine here, stopping them before
-		// releasing the lock.
+		// TODO(M2): start the trading engine here, stopping it before releasing the lock.
 
 		watchErr := lock.Watch(ctx, 5*time.Second)
 		engine.SetLeader(false)

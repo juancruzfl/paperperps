@@ -19,7 +19,7 @@ Service settings are configured in the Railway dashboard. The repo deliberately 
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (a reference to the Postgres service) |
-| `HL_NETWORK` | `testnet` (switch to `mainnet` if testnet data feels unrealistic) |
+| `HL_NETWORK` | `mainnet` (the default; public read-only data, nothing is signed) |
 
 Everything else has sensible defaults (see `.env.example`). Don't set `PORT` or `WEB_DIR`:
 Railway sets `PORT`, and the image sets `WEB_DIR`. `RAILWAY_GIT_COMMIT_SHA` is provided
@@ -40,7 +40,9 @@ Migrations run automatically at startup.
 
 **Networking → Generate Domain** gives you a `*.up.railway.app` URL. Open it and check:
 
-- The page shows **Engine: leader** and **Market data: Hyperliquid testnet**.
+- The trading screen shows a live chart and order book, and the footer reads **Connected ·
+  Hyperliquid mainnet data**.
+- `/api/status` shows `"engine": "leader"`.
 - `https://<railway-url>/healthz` returns `{"ok":true}`.
 - Deploy logs show `migration applied` and `engine lock acquired`.
 
