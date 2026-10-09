@@ -131,3 +131,54 @@ func TestValidateSize(t *testing.T) {
 		t.Error("invalid sizes accepted")
 	}
 }
+
+func TestMaintenanceRate(t *testing.T) {
+	eq(t, "40x", MaintenanceRate(40), "0.0125")
+	eq(t, "10x", MaintenanceRate(10), "0.05")
+	if !MaintenanceRate(3).Sub(d("0.1666666666666667")).Abs().LessThan(d("0.0000000001")) {
+		t.Errorf("3x = %s", MaintenanceRate(3))
+	}
+}
+
+func TestSummarizeWithIsolated(t *testing.T) {
+	btc := CoinState{Size: d("0.01"), EntryPx: d("80000"), Leverage: 20, MarkPx: d("82000"), MaintenanceRate: d("0.0125")}
+	eth := CoinState{Size: d("-1"), EntryPx: d("2500"), Leverage: 10, MarkPx: d("2400"), MaintenanceRate: d("0.02"),
+		Isolated: true, IsolatedMargin: d("250")}
+	s := Summarize(d("1000"), []CoinState{btc, eth})
+	eq(t, "upnl", s.UnrealizedPnl, "120")
+	eq(t, "account value", s.AccountValue, "1120")
+	eq(t, "isolated margin", s.IsolatedMargin, "250")
+	eq(t, "cross account value", s.CrossAccountValue, "770") // 1000 - 250 + 20
+	eq(t, "cross margin used", s.MarginUsed, "41")
+	eq(t, "cross maintenance", s.CrossMaintenance, "10.25") // 820 * 1.25%
+	eq(t, "available", s.Available, "729")
+	if s.CrossLiquidatable() {
+		t.Error("healthy account flagged for cross liquidation")
+	}
+
+	eq(t, "isolated equity", eth.IsolatedEquity(), "350")
+	if eth.IsolatedLiquidatable() {
+		t.Error("healthy isolated position flagged")
+	}
+	eth.MarkPx = d("2700") // equity 250 - 200 = 50 < MM 54
+	if !eth.IsolatedLiquidatable() {
+		t.Error("isolated position below maintenance not flagged")
+	}
+
+	btc.MarkPx = d("20000") // cross: 1000 - 250 - 600 = 150 vs MM 2.5: fine
+	if Summarize(d("1000"), []CoinState{btc, eth}).CrossLiquidatable() {
+		t.Error("cross flagged too early")
+	}
+	big := CoinState{Size: d("0.4"), EntryPx: d("82000"), Leverage: 40, MarkPx: d("80500"), MaintenanceRate: d("0.0125")}
+	if !Summarize(d("985.24"), []CoinState{big}).CrossLiquidatable() { // 385.24 < 402.5
+		t.Error("cross below maintenance not flagged")
+	}
+}
+
+func TestIsolatedMarginAfter(t *testing.T) {
+	eq(t, "open", IsolatedMarginAfter(zero, zero, d("0.01"), d("82000"), 20), "41")
+	eq(t, "add", IsolatedMarginAfter(d("0.01"), d("41"), d("0.03"), d("84000"), 20), "125")
+	eq(t, "reduce", IsolatedMarginAfter(d("0.03"), d("125"), d("0.01"), d("85000"), 20), "41.666667")
+	eq(t, "close", IsolatedMarginAfter(d("0.01"), d("41"), zero, d("85000"), 20), "0")
+	eq(t, "flip", IsolatedMarginAfter(d("0.01"), d("41"), d("-0.02"), d("80000"), 20), "80")
+}

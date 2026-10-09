@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { describeFill, loadHistory, refreshAccount, useAccount } from '../lib/account'
 import { formatNumber, formatPct, formatUsd, pxDecimals } from '../lib/format'
-import { coinStates, positionMargin, unrealizedPnl } from '../lib/margin'
+import { coinStates, liquidationPrice, positionMargin, summarize, unrealizedPnl } from '../lib/margin'
+import { IsolatedMarginControl } from './MarginControls'
 import { useTickers } from '../lib/market'
 import { toast } from '../lib/toasts'
 import type { Ticker } from '../lib/types'
@@ -61,7 +62,9 @@ function Positions({ onSelectCoin }: { onSelectCoin: (coin: string) => void }) {
   const tickers = useTickers()
   const [closing, setClosing] = useState<string | null>(null)
   if (!me) return null
-  const coins = coinStates(me, tickers).filter((c) => c.size !== 0)
+  const all = coinStates(me, tickers)
+  const summary = summarize(Number(me.balance), all)
+  const coins = all.filter((c) => c.size !== 0)
   if (coins.length === 0) return <div className="panel-empty">No open positions. Place an order to open one.</div>
 
   const close = async (coin: string, size: number, szDecimals: number) => {
@@ -93,6 +96,7 @@ function Positions({ onSelectCoin }: { onSelectCoin: (coin: string) => void }) {
           <th className="num">Entry</th>
           <th className="num">Mark</th>
           <th className="num">PnL (ROE)</th>
+          <th className="num">Liq. price</th>
           <th className="num">Margin</th>
           <th className="num">Close</th>
         </tr>
@@ -101,7 +105,8 @@ function Positions({ onSelectCoin }: { onSelectCoin: (coin: string) => void }) {
         {coins.map((c) => {
           const dec = decimalsFor(tickers, c.coin, c.markPx)
           const pnl = unrealizedPnl(c)
-          const margin = positionMargin(c)
+          const margin = c.isolated ? c.isolatedMargin : positionMargin(c)
+          const liq = liquidationPrice(c, summary)
           return (
             <tr key={c.coin}>
               <td>
@@ -119,7 +124,11 @@ function Positions({ onSelectCoin }: { onSelectCoin: (coin: string) => void }) {
               <td className={`num ${tone(pnl)}`}>
                 {usd(pnl, true)} ({formatPct(margin > 0 ? pnl / margin : 0)})
               </td>
-              <td className="num">{usd(margin)}</td>
+              <td className="num">{liq === null ? '—' : formatNumber(liq, dec.px)}</td>
+              <td className="num">
+                {usd(margin)} <span className="muted">{c.isolated ? 'Isolated' : 'Cross'}</span>
+                {c.isolated && <IsolatedMarginControl coin={c.coin} margin={c.isolatedMargin} available={summary.available} />}
+              </td>
               <td className="num">
                 <button type="button" className="small-btn" disabled={closing === c.coin} onClick={() => void close(c.coin, c.size, dec.sz)}>
                   {closing === c.coin ? 'Closing…' : 'Market'}
@@ -293,7 +302,7 @@ function FundingHistory() {
   if (error) return <div className="panel-empty">Couldn’t load funding history.</div>
   if (!rows) return <div className="panel-empty">Loading…</div>
   if (rows.length === 0) {
-    return <div className="panel-empty">No funding payments yet. Hourly funding on open positions arrives in a later update.</div>
+    return <div className="panel-empty">No funding payments yet. Open positions pay or receive funding at the top of every hour.</div>
   }
   return (
     <table className="data-table">

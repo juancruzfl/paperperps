@@ -160,6 +160,16 @@ function onAccountEvent(msg: ServerMessage) {
     // Resting orders fill in the background; the user didn't just click anything.
     toast(`Limit order filled: ${describeFill(ev.fill)}`, 'success')
   }
+  if (ev.type === 'liquidation' && ev.liquidation) {
+    const l = ev.liquidation
+    const what = l.cross ? `Your cross positions (${l.coins.join(', ')}) were` : `Your isolated ${l.coins[0]} position was`
+    const fee = Number(l.liquidationFee)
+    toast(
+      `${what} liquidated: equity fell below maintenance margin.${fee > 0 ? ` Remaining margin forfeited: $${fee.toFixed(2)}.` : ''}`,
+      'error',
+      15000,
+    )
+  }
   if (ev.type === 'order' && ev.order?.status === 'cancelled' && ev.order.statusReason?.includes('insufficient margin')) {
     toast(`${ev.order.coin} limit order cancelled: not enough margin when it would have filled`, 'error')
   }

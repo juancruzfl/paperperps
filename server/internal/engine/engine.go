@@ -43,7 +43,22 @@ type Config struct {
 	// DefaultLeverage applies to coins the account hasn't set leverage for, capped at
 	// the coin's max.
 	DefaultLeverage int
+	// LiquidationMode is "forfeit" (lose the remaining margin, like HL's backstop) or
+	// "market" (keep it, like HL's market liquidation). See docs/plan.md §4.6.
+	LiquidationMode string
+	// RiskInterval is how often liquidations and funding are checked. Default 1s.
+	RiskInterval time.Duration
+	// Now is the clock; tests replace it. Default time.Now in UTC.
+	Now func() time.Time
 }
+
+const (
+	LiquidationForfeit = "forfeit"
+	LiquidationMarket  = "market"
+
+	MarginCross    = "cross"
+	MarginIsolated = "isolated"
+)
 
 const (
 	SideBuy  = "buy"
@@ -89,17 +104,36 @@ type OrderResult struct {
 
 // AccountEvent is published on AccountTopic when an account's orders or fills change.
 type AccountEvent struct {
-	Type  string          `json:"type"` // order | fill | leverage
-	Order *accounts.Order `json:"order,omitempty"`
-	Fill  *accounts.Fill  `json:"fill,omitempty"`
+	Type        string           `json:"type"` // order | fill | leverage | margin | liquidation | funding
+	Order       *accounts.Order  `json:"order,omitempty"`
+	Fill        *accounts.Fill   `json:"fill,omitempty"`
+	Liquidation *LiquidationInfo `json:"liquidation,omitempty"`
+}
+
+// LiquidationInfo tells the user what a liquidation closed and cost.
+type LiquidationInfo struct {
+	Coins          []string        `json:"coins"`
+	Cross          bool            `json:"cross"`
+	Fills          []accounts.Fill `json:"fills"`
+	LiquidationFee decimal.Decimal `json:"liquidationFee"` // remaining margin forfeited
+	BadDebt        decimal.Decimal `json:"badDebt"`        // loss beyond the margin, absorbed
 }
 
 // --- in-memory state, owned by the Run goroutine ---
 
 type position struct {
-	size     decimal.Decimal
-	entryPx  decimal.Decimal
-	leverage int
+	size      decimal.Decimal
+	entryPx   decimal.Decimal
+	leverage  int
+	isolated  bool
+	isoMargin decimal.Decimal // isolated positions only
+}
+
+func (p *position) mode() string {
+	if p.isolated {
+		return MarginIsolated
+	}
+	return MarginCross
 }
 
 type account struct {
@@ -133,15 +167,27 @@ type Engine struct {
 	accounts map[uuid.UUID]*account
 	resting  map[string]map[uuid.UUID]*accounts.Order // coin → open limit orders
 	owners   map[uuid.UUID]*account                   // open order id → its account
+
+	lastFunding time.Time // the last funding hour settled
 }
 
 func New(pool *pgxpool.Pool, md MarketData, pub Publisher, cfg Config) *Engine {
+	now := cfg.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	if cfg.RiskInterval == 0 {
+		cfg.RiskInterval = time.Second
+	}
+	if cfg.LiquidationMode == "" {
+		cfg.LiquidationMode = LiquidationForfeit
+	}
 	return &Engine{
 		pool:   pool,
 		md:     md,
 		pub:    pub,
 		cfg:    cfg,
-		now:    func() time.Time { return time.Now().UTC() },
+		now:    now,
 		cmds:   make(chan func(context.Context)),
 		events: make(chan event, 4096),
 	}
@@ -157,20 +203,30 @@ func (e *Engine) Run(ctx context.Context) error {
 	e.resting = map[string]map[uuid.UUID]*accounts.Order{}
 	e.owners = map[uuid.UUID]*account{}
 
-	rows, err := e.pool.Query(ctx, `SELECT DISTINCT account_id FROM orders WHERE status = 'open'`)
+	// Every account with an open order or position must be in memory: resting orders fill,
+	// positions get liquidated and pay funding.
+	rows, err := e.pool.Query(ctx, `
+		SELECT account_id FROM orders WHERE status = 'open'
+		UNION SELECT account_id FROM positions WHERE size <> 0`)
 	if err != nil {
-		return fmt.Errorf("load open orders: %w", err)
+		return fmt.Errorf("load active accounts: %w", err)
 	}
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
-		return fmt.Errorf("load open orders: %w", err)
+		return fmt.Errorf("load active accounts: %w", err)
 	}
 	for _, id := range ids {
 		if _, err := e.account(ctx, id); err != nil {
 			return err
 		}
 	}
-	slog.Info("engine started", "accounts_with_open_orders", len(ids))
+	if e.lastFunding, err = loadLastFunding(ctx, e.pool, e.now()); err != nil {
+		return err
+	}
+	slog.Info("engine started", "active_accounts", len(ids), "last_funding_hour", e.lastFunding)
+
+	risk := time.NewTicker(e.cfg.RiskInterval)
+	defer risk.Stop()
 
 	e.running.Store(true)
 	defer e.running.Store(false)
@@ -182,6 +238,9 @@ func (e *Engine) Run(ctx context.Context) error {
 			fn(ctx)
 		case ev := <-e.events:
 			e.handleEvent(ctx, ev)
+		case <-risk.C:
+			e.checkRisk(ctx)
+			e.settleFunding(ctx)
 		}
 	}
 }
@@ -340,13 +399,13 @@ func (e *Engine) placeOrder(ctx context.Context, accountID uuid.UUID, req OrderR
 
 	pos := a.position(req.Coin, e.defaultLeverage(ticker))
 	var rec *fillRecord
-	sc := scenario{coin: req.Coin, size: pos.size, entryPx: pos.entryPx, leverage: pos.leverage, balance: a.balance}
+	sc := pos.scenario(req.Coin, a.balance)
 	if filled.IsPositive() {
 		// The fee is charged on the exact notional walked, not on size × average price.
 		fee := notional.Mul(e.cfg.TakerFeeRate).Round(usdDecimals)
 		r := e.newFill(pos, &order.ID, req.Coin, buy, filled, notional.Div(filled), fee, "taker", now)
 		rec = &r
-		sc.size, sc.entryPx, sc.balance = r.newSize, r.newEntry, a.balance.Add(r.balanceDelta)
+		sc.apply(r, a.balance)
 	}
 	if order.Status == StatusOpen {
 		sc.addOrder = &RestingOrder{Buy: buy, Remaining: remaining, Px: req.Px.Decimal}
@@ -364,7 +423,7 @@ func (e *Engine) placeOrder(ctx context.Context, accountID uuid.UUID, req OrderR
 		}
 		// Persist the leverage the resting order's margin is reserved at, so readers of the
 		// database compute the same margin as the engine.
-		return upsertPosition(ctx, tx, a.id, a.runID, req.Coin, pos.size, pos.entryPx, pos.leverage, now)
+		return upsertPosition(ctx, tx, a.id, a.runID, req.Coin, pos, now)
 	})
 	if err != nil {
 		return OrderResult{}, err
@@ -426,12 +485,18 @@ func (e *Engine) setLeverage(ctx context.Context, accountID uuid.UUID, coin stri
 		return err
 	}
 	pos := a.position(coin, e.defaultLeverage(ticker))
-	sc := scenario{coin: coin, size: pos.size, entryPx: pos.entryPx, leverage: leverage, balance: a.balance}
+	if pos.isolated && !pos.size.IsZero() {
+		return reject("isolated_position_open", "close the isolated %s position before changing its leverage", coin)
+	}
+	sc := pos.scenario(coin, a.balance)
+	sc.leverage = leverage
 	if !e.affordable(a, sc) {
 		return reject("insufficient_margin", "not enough available margin to lower leverage")
 	}
 	err = pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
-		return upsertPosition(ctx, tx, a.id, a.runID, coin, pos.size, pos.entryPx, leverage, e.now())
+		return upsertPosition(ctx, tx, a.id, a.runID, coin, &position{
+			size: pos.size, entryPx: pos.entryPx, leverage: leverage, isolated: pos.isolated, isoMargin: pos.isoMargin,
+		}, e.now())
 	})
 	if err != nil {
 		return err
@@ -516,10 +581,9 @@ func (e *Engine) fillResting(ctx context.Context, o *accounts.Order, ticker mark
 	pos := a.position(o.Coin, e.defaultLeverage(ticker))
 
 	r := e.newFill(pos, &o.ID, o.Coin, buy, sz, px, Fee(sz, px, e.cfg.MakerFeeRate), "maker", now)
-	sc := scenario{
-		coin: o.Coin, size: r.newSize, entryPx: r.newEntry, leverage: pos.leverage,
-		balance: a.balance.Add(r.balanceDelta), dropOrder: o.ID,
-	}
+	sc := pos.scenario(o.Coin, a.balance)
+	sc.apply(r, a.balance)
+	sc.dropOrder = o.ID
 	if !e.affordable(a, sc) {
 		return e.closeOrder(ctx, a, o, "cancelled: insufficient margin when it would have filled")
 	}
@@ -568,14 +632,23 @@ func (e *Engine) newFill(pos *position, orderID *uuid.UUID, coin string, buy boo
 		},
 		newSize:      res.NewSize,
 		newEntry:     res.NewEntryPx,
+		newIsoMargin: isoMarginAfter(pos, res.NewSize, px),
 		leverage:     pos.leverage,
+		isolated:     pos.isolated,
 		balanceDelta: res.ClosedPnl.Sub(fee),
 	}
 }
 
+func isoMarginAfter(pos *position, newSize, px decimal.Decimal) decimal.Decimal {
+	if !pos.isolated {
+		return zero
+	}
+	return IsolatedMarginAfter(pos.size, pos.isoMargin, newSize, px, pos.leverage)
+}
+
 func (e *Engine) applyFill(a *account, r fillRecord) {
 	pos := a.position(r.fill.Coin, r.leverage)
-	pos.size, pos.entryPx = r.newSize, r.newEntry
+	pos.size, pos.entryPx, pos.isoMargin = r.newSize, r.newEntry, r.newIsoMargin
 	a.balance = a.balance.Add(r.balanceDelta)
 }
 
@@ -595,7 +668,10 @@ func (e *Engine) account(ctx context.Context, id uuid.UUID) (*account, error) {
 		orders:    map[uuid.UUID]*accounts.Order{},
 	}
 	for _, p := range st.Positions {
-		a.positions[p.Coin] = &position{size: p.Size, entryPx: p.EntryPx, leverage: p.Leverage}
+		a.positions[p.Coin] = &position{
+			size: p.Size, entryPx: p.EntryPx, leverage: p.Leverage,
+			isolated: p.MarginMode == MarginIsolated, isoMargin: p.IsolatedMargin,
+		}
 	}
 	for _, o := range st.OpenOrders {
 		a.orders[o.ID] = &o
@@ -642,9 +718,25 @@ type scenario struct {
 	size      decimal.Decimal
 	entryPx   decimal.Decimal
 	leverage  int
+	isolated  bool
+	isoMargin decimal.Decimal
 	balance   decimal.Decimal
 	addOrder  *RestingOrder
 	dropOrder uuid.UUID
+}
+
+// scenario starts a what-if from the position's current state.
+func (p *position) scenario(coin string, balance decimal.Decimal) scenario {
+	return scenario{
+		coin: coin, size: p.size, entryPx: p.entryPx, leverage: p.leverage,
+		isolated: p.isolated, isoMargin: p.isoMargin, balance: balance,
+	}
+}
+
+// apply updates the what-if with a fill.
+func (sc *scenario) apply(r fillRecord, balance decimal.Decimal) {
+	sc.size, sc.entryPx, sc.isoMargin = r.newSize, r.newEntry, r.newIsoMargin
+	sc.balance = balance.Add(r.balanceDelta)
 }
 
 // affordable reports whether the account can take the action described by sc. It must
@@ -666,14 +758,12 @@ func (e *Engine) coinStates(a *account, sc *scenario) []CoinState {
 	get := func(coin string) *CoinState {
 		c, ok := coins[coin]
 		if !ok {
-			c = &CoinState{Leverage: 1}
+			c = &CoinState{Coin: coin, Leverage: 1}
 			if p, ok := a.positions[coin]; ok {
 				c.Size, c.EntryPx, c.Leverage = p.size, p.entryPx, p.leverage
+				c.Isolated, c.IsolatedMargin = p.isolated, p.isoMargin
 			}
-			c.MarkPx = c.EntryPx
-			if t, ok := e.md.Ticker(coin); ok && t.MarkPx.IsPositive() {
-				c.MarkPx = t.MarkPx
-			}
+			e.mark(coin, c)
 			coins[coin] = c
 		}
 		return c
@@ -693,6 +783,7 @@ func (e *Engine) coinStates(a *account, sc *scenario) []CoinState {
 	if sc != nil {
 		c := get(sc.coin)
 		c.Size, c.EntryPx, c.Leverage = sc.size, sc.entryPx, sc.leverage
+		c.Isolated, c.IsolatedMargin = sc.isolated, sc.isoMargin
 		if sc.addOrder != nil {
 			c.Orders = append(c.Orders, *sc.addOrder)
 		}
@@ -707,6 +798,23 @@ func (e *Engine) coinStates(a *account, sc *scenario) []CoinState {
 	return out
 }
 
+// mark fills in a coin's mark price and maintenance rate from live data. Without a ticker
+// it falls back to the entry price and the account's own leverage.
+func (e *Engine) mark(coin string, c *CoinState) {
+	markInto(e.md, coin, c)
+}
+
+func markInto(md MarketData, coin string, c *CoinState) {
+	c.MarkPx = c.EntryPx
+	c.MaintenanceRate = MaintenanceRate(c.Leverage)
+	if t, ok := md.Ticker(coin); ok {
+		if t.MarkPx.IsPositive() {
+			c.MarkPx = t.MarkPx
+		}
+		c.MaintenanceRate = MaintenanceRate(t.MaxLeverage)
+	}
+}
+
 // SummarizeAccount computes the margin summary of an account read from the database,
 // using live marks. Any instance can call it.
 func SummarizeAccount(a accounts.Account, md MarketData) Summary {
@@ -714,7 +822,7 @@ func SummarizeAccount(a accounts.Account, md MarketData) Summary {
 	get := func(coin string) *CoinState {
 		c, ok := coins[coin]
 		if !ok {
-			c = &CoinState{Leverage: 1}
+			c = &CoinState{Coin: coin, Leverage: 1}
 			coins[coin] = c
 		}
 		return c
@@ -722,6 +830,7 @@ func SummarizeAccount(a accounts.Account, md MarketData) Summary {
 	for _, p := range a.Positions {
 		c := get(p.Coin)
 		c.Size, c.EntryPx, c.Leverage = p.Size, p.EntryPx, max(p.Leverage, 1)
+		c.Isolated, c.IsolatedMargin = p.MarginMode == MarginIsolated, p.IsolatedMargin
 	}
 	for _, o := range a.OpenOrders {
 		c := get(o.Coin)
@@ -729,10 +838,7 @@ func SummarizeAccount(a accounts.Account, md MarketData) Summary {
 	}
 	out := make([]CoinState, 0, len(coins))
 	for coin, c := range coins {
-		c.MarkPx = c.EntryPx
-		if t, ok := md.Ticker(coin); ok && t.MarkPx.IsPositive() {
-			c.MarkPx = t.MarkPx
-		}
+		markInto(md, coin, c)
 		out = append(out, *c)
 	}
 	return Summarize(a.Balance, out)

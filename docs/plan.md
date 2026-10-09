@@ -130,7 +130,7 @@ in sequence, so cross-margin math never races and needs no locks.
   the queue is full, the event is dropped, which only delays a fill until the next event.
 - At about 100 market events/second across 20 coins this is plenty. Splitting into
   per-market goroutines (the original idea) only becomes worth it if profiling says so.
-- The M3 risk loop (liquidations, funding) will run on the same goroutine.
+- The risk loop (liquidations, funding) runs on the same goroutine, once a second.
 
 ### 3.3 Ledger & persistence
 - Postgres is the source of truth for accounts, orders, fills, positions and ledger entries.
@@ -149,7 +149,9 @@ Built (M1–M2):
 | POST | `/api/accounts` | Create an anonymous account → `{accountId, secret, handle}` |
 | GET | `/api/me` | Balance, positions (incl. leverage settings), open orders, margin summary at live marks |
 | GET | `/api/me/orders`, `/api/me/fills`, `/api/me/funding` | History (latest 200) |
-| PUT | `/api/me/leverage/{coin}` | Set leverage (cross) |
+| PUT | `/api/me/leverage/{coin}` | Set leverage `{leverage}` |
+| PUT | `/api/me/margin-mode/{coin}` | `{mode: cross\|isolated}`; only with no position or orders on the coin |
+| POST | `/api/me/isolated-margin/{coin}` | `{amount}`: positive adds, negative removes |
 | POST | `/api/orders` | Place a market or limit (GTC) order: `{coin, side, type, sz, px?}` |
 | DELETE | `/api/orders/{id}` | Cancel an open order |
 | GET | `/api/markets` | Tickers for the enabled markets |
@@ -167,7 +169,6 @@ Planned:
 | PATCH | `/api/me` | Set handle, leaderboard opt-in | M5 |
 | POST | `/api/me/reset` | Reset to $1,000 (cooldown enforced) | M5 |
 | POST | `/api/orders/{id}/modify` | Modify price/size | M4 |
-| PUT/POST | `/api/me/leverage/{coin}`, isolated margin | Cross/isolated, add/remove margin | M3 |
 | GET | `/api/leaderboard?window=` | Rankings | M5 |
 
 Auth: `Authorization: Bearer <secret>`. Only `sha256(secret)` is stored. Errors are
@@ -239,14 +240,28 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
 - Each account picks **cross or isolated** per asset, and leverage from 1× to `maxLeverage`.
 - Initial margin = `notional / leverage`.
 - Maintenance margin follows HL's rule: half the initial margin at max leverage, so
-  `MMR = 1 / (2 × maxLeverage)`. We also follow HL's margin tiers for assets that have them.
+  `MMR = 1 / (2 × maxLeverage)`.
+- **Margin tiers are not modeled.** On mainnet (checked 2026-10-09) the second tier starts
+  at $3M of notional for ONDO and XPL, and at $20M–$150M for the rest. A $1,000 account
+  would need hundreds of times its money in profit to reach that. Revisit if the leaderboard
+  ever shows accounts that large.
+- **Isolated margin is a slice of the cash balance** set aside for one position:
+  - Opening or adding allocates initial margin for the added size.
+  - Reducing releases it in proportion; closing releases all of it.
+  - Funding on an isolated position is paid from its margin.
+  - Cross value = balance − isolated margin + cross uPnL. Available =
+    cross value − cross initial margin − order margin.
+  - You can add margin, or remove it down to the position's initial margin.
+  - Margin mode can only change with no position or orders on the coin, and leverage
+    can't change while an isolated position is open.
 - Unrealized PnL uses the **mark price**.
 - Opening an order needs enough available margin, counting resting orders that would
   increase the position.
 
 ### 4.6 Liquidations
-- The risk loop re-checks every account with open positions whenever a mark price changes,
-  throttled to roughly once per second per market.
+- The risk loop re-checks every account with open positions once a second. Isolated
+  positions are checked first. A market with stale data is never liquidated, and if any
+  of an account's cross positions is stale, the whole cross check waits.
 - **Cross:** liquidate when account value < total cross maintenance margin.
   **Isolated:** liquidate per position when its isolated margin + uPnL < its maintenance
   margin.
@@ -270,9 +285,15 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
   - `LIQUIDATION_MODE=forfeit` is the default. `LIQUIDATION_MODE=market` keeps the
     remainder like HL's normal market liquidation, in case forfeiting feels too harsh in
     practice.
-- If equity goes negative (bad debt from gaps), set the balance to $0 and record it. Users
-  can never owe money.
-- The user gets a liquidation notification and a ledger entry.
+- If the close realizes more loss than the margin at stake (prices gapped through the
+  liquidation price), the excess is credited back as a `bad_debt` ledger entry. The
+  backstop absorbs it, so isolated losses stop at the isolated margin and cross equity stops
+  at $0. Users can never owe money.
+- If the book is too thin, whatever it can't absorb closes at the mark price.
+- **Open orders are cancelled:** all of them on a cross liquidation, and the coin's orders
+  on an isolated one.
+- The user gets a toast with the liquidation fee. The fills are marked `is_liquidation` in
+  trade history.
 
 ### 4.7 Funding
 - Hourly, on the HL schedule. Payments are idempotent, keyed by
@@ -282,6 +303,12 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
   `activeAssetCtx` / `metaAndAssetCtxs`.
 - Longs pay shorts when the rate is positive.
 - Every payment is recorded in the ledger and shown in Funding History.
+- **As built:** settled at the first risk tick after each hour boundary, using the live
+  hourly rate and oracle price. The last settled hour is stored in `engine_state`.
+  - Hours missed while the engine was down are not back-filled.
+  - Stale markets skip that hour.
+  - The first hour after a fresh start is skipped, so a new database never charges
+    immediately.
 
 ### 4.8 Fees
 - Mirror HL's base-tier perp fees (taker ≈ 0.045%, maker ≈ 0.015%; confirm against current
@@ -483,6 +510,20 @@ correct PnL and fees.*
 Isolated margin, leverage controls, maintenance margin, liquidation engine, funding
 payments, stale-data halts. *Done when: replay tests cover liquidation and funding against
 hand-calculated expectations.*
+*Status (2026-10-09): done.* Scripted price-path tests in
+`server/internal/engine/risk_test.go`, each with the arithmetic in comments:
+- Cross liquidation (forfeit and market modes), with open orders cancelled.
+- Isolated liquidation that leaves cross alone: it costs exactly the 400 of isolated margin.
+- Gap liquidations: isolated and cross bad debt absorbed.
+- A thin book closing the remainder at mark.
+- No liquidation while data is stale.
+- Hourly funding: signs, isolated margin, no double charge across ticks and restarts,
+  stale markets skipped.
+- Margin-mode and isolated-margin rules.
+
+The UI mirrors the math. It shows the liquidation price per position and an estimate in
+the order form, plus the Cross/Isolated switch and add/remove isolated margin. Leverage
+controls arrived in M2.
 
 **M4 — Advanced orders**
 IOC, post-only, reduce-only, stop/TP/SL (market and limit), position-linked TP/SL, modify

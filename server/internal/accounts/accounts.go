@@ -113,11 +113,12 @@ func (s *Store) Authenticate(ctx context.Context, secret string) (uuid.UUID, err
 // Position is an account's position and leverage setting on one coin. A zero size means
 // only the leverage setting exists.
 type Position struct {
-	Coin       string          `json:"coin"`
-	Size       decimal.Decimal `json:"size"`
-	EntryPx    decimal.Decimal `json:"entryPx"`
-	Leverage   int             `json:"leverage"`
-	MarginMode string          `json:"marginMode"`
+	Coin           string          `json:"coin"`
+	Size           decimal.Decimal `json:"size"`
+	EntryPx        decimal.Decimal `json:"entryPx"`
+	Leverage       int             `json:"leverage"`
+	MarginMode     string          `json:"marginMode"`
+	IsolatedMargin decimal.Decimal `json:"isolatedMargin"`
 }
 
 type Order struct {
@@ -194,14 +195,14 @@ func Load(ctx context.Context, q Querier, id uuid.UUID) (Account, error) {
 	}
 
 	rows, err := q.Query(ctx, `
-		SELECT coin, size, coalesce(entry_px, 0), leverage, margin_mode
+		SELECT coin, size, coalesce(entry_px, 0), leverage, margin_mode, isolated_margin
 		FROM positions WHERE account_id = $1 ORDER BY coin`, id)
 	if err != nil {
 		return Account{}, fmt.Errorf("load positions: %w", err)
 	}
 	a.Positions, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (Position, error) {
 		var p Position
-		err := r.Scan(&p.Coin, &p.Size, &p.EntryPx, &p.Leverage, &p.MarginMode)
+		err := r.Scan(&p.Coin, &p.Size, &p.EntryPx, &p.Leverage, &p.MarginMode, &p.IsolatedMargin)
 		return p, err
 	})
 	if err != nil {

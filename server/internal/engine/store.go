@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -18,7 +19,9 @@ type fillRecord struct {
 	fill         accounts.Fill
 	newSize      decimal.Decimal
 	newEntry     decimal.Decimal
+	newIsoMargin decimal.Decimal
 	leverage     int
+	isolated     bool
 	balanceDelta decimal.Decimal // closed PnL - fee
 }
 
@@ -57,43 +60,81 @@ func recordFill(ctx context.Context, tx pgx.Tx, accountID, runID uuid.UUID, r fi
 		return fmt.Errorf("insert fill: %w", err)
 	}
 
-	ledger := func(kind string, amount decimal.Decimal) error {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO ledger_entries (id, account_id, run_id, kind, amount, ref_id, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			accounts.NewID(), accountID, runID, kind, amount, f.ID, f.CreatedAt)
-		if err != nil {
-			return fmt.Errorf("insert %s ledger entry: %w", kind, err)
-		}
-		return nil
+	if err := addLedger(ctx, tx, accountID, runID, "fill_pnl", f.ClosedPnl, f.ID, f.CreatedAt); err != nil {
+		return err
 	}
-	if !f.ClosedPnl.IsZero() {
-		if err := ledger("fill_pnl", f.ClosedPnl); err != nil {
-			return err
-		}
+	if err := addLedger(ctx, tx, accountID, runID, "fee", f.Fee.Neg(), f.ID, f.CreatedAt); err != nil {
+		return err
 	}
-	if !f.Fee.IsZero() {
-		if err := ledger("fee", f.Fee.Neg()); err != nil {
-			return err
-		}
+	if err := addBalance(ctx, tx, runID, r.balanceDelta); err != nil {
+		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE runs SET balance = balance + $2 WHERE id = $1`, runID, r.balanceDelta); err != nil {
-		return fmt.Errorf("update balance: %w", err)
-	}
-	return upsertPosition(ctx, tx, accountID, runID, f.Coin, r.newSize, r.newEntry, r.leverage, f.CreatedAt)
+	return upsertPosition(ctx, tx, accountID, runID, f.Coin, &position{
+		size: r.newSize, entryPx: r.newEntry, leverage: r.leverage, isolated: r.isolated, isoMargin: r.newIsoMargin,
+	}, f.CreatedAt)
 }
 
-func upsertPosition(ctx context.Context, tx pgx.Tx, accountID, runID uuid.UUID, coin string,
-	size, entry decimal.Decimal, leverage int, now time.Time) error {
-	entryPx := decimal.NullDecimal{Decimal: entry, Valid: !size.IsZero()}
+// addLedger records a balance change. Zero amounts are skipped.
+func addLedger(ctx context.Context, tx pgx.Tx, accountID, runID uuid.UUID, kind string,
+	amount decimal.Decimal, refID uuid.UUID, at time.Time) error {
+	if amount.IsZero() {
+		return nil
+	}
 	_, err := tx.Exec(ctx, `
-		INSERT INTO positions (account_id, coin, run_id, size, entry_px, margin_mode, leverage, updated_at)
-		VALUES ($1, $2, $3, $4, $5, 'cross', $6, $7)
+		INSERT INTO ledger_entries (id, account_id, run_id, kind, amount, ref_id, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		accounts.NewID(), accountID, runID, kind, amount, refID, at)
+	if err != nil {
+		return fmt.Errorf("insert %s ledger entry: %w", kind, err)
+	}
+	return nil
+}
+
+// addBalance moves the run's cached balance. Callers add matching ledger entries in the
+// same transaction.
+func addBalance(ctx context.Context, tx pgx.Tx, runID uuid.UUID, delta decimal.Decimal) error {
+	if _, err := tx.Exec(ctx, `UPDATE runs SET balance = balance + $2 WHERE id = $1`, runID, delta); err != nil {
+		return fmt.Errorf("update balance: %w", err)
+	}
+	return nil
+}
+
+func upsertPosition(ctx context.Context, tx pgx.Tx, accountID, runID uuid.UUID, coin string, p *position, now time.Time) error {
+	entryPx := decimal.NullDecimal{Decimal: p.entryPx, Valid: !p.size.IsZero()}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO positions (account_id, coin, run_id, size, entry_px, margin_mode, leverage, isolated_margin, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (account_id, coin) DO UPDATE
-		SET run_id = $3, size = $4, entry_px = $5, leverage = $6, updated_at = $7`,
-		accountID, coin, runID, size, entryPx, leverage, now)
+		SET run_id = $3, size = $4, entry_px = $5, margin_mode = $6, leverage = $7, isolated_margin = $8, updated_at = $9`,
+		accountID, coin, runID, p.size, entryPx, p.mode(), p.leverage, p.isoMargin, now)
 	if err != nil {
 		return fmt.Errorf("upsert position: %w", err)
+	}
+	return nil
+}
+
+const lastFundingKey = "last_funding_hour"
+
+// loadLastFunding returns the last funding hour settled. On a fresh database it is the
+// current hour, so the first payment happens at the next hour boundary.
+func loadLastFunding(ctx context.Context, q accounts.Querier, now time.Time) (time.Time, error) {
+	var t time.Time
+	err := q.QueryRow(ctx, `SELECT value FROM engine_state WHERE key = $1`, lastFundingKey).Scan(&t)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return now.Truncate(time.Hour), nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("load last funding hour: %w", err)
+	}
+	return t.UTC(), nil
+}
+
+func saveLastFunding(ctx context.Context, tx pgx.Tx, hour time.Time) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO engine_state (key, value, updated_at) VALUES ($1, $2, now())
+		ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now()`, lastFundingKey, hour)
+	if err != nil {
+		return fmt.Errorf("save last funding hour: %w", err)
 	}
 	return nil
 }

@@ -63,6 +63,7 @@ export type Position = {
   entryPx: string
   leverage: number
   marginMode: 'cross' | 'isolated'
+  isolatedMargin: string
 }
 
 export type Order = {
@@ -108,7 +109,10 @@ export type MarginSummary = {
   balance: string
   unrealizedPnl: string
   accountValue: string
+  crossAccountValue: string
   marginUsed: string
+  crossMaintenance: string
+  isolatedMargin: string
   orderMargin: string
   available: string
 }
@@ -128,8 +132,17 @@ export type CreatedAccount = { accountId: string; secret: string; handle: string
 
 export type OrderResult = { order: Order; fill: Fill | null }
 
+export type LiquidationInfo = {
+  coins: string[]
+  cross: boolean
+  fills: Fill[]
+  liquidationFee: string
+  badDebt: string
+}
+
 export type AccountEvent = {
-  type: 'order' | 'fill' | 'leverage'
+  type: 'order' | 'fill' | 'leverage' | 'margin' | 'liquidation' | 'funding'
   order?: Order
   fill?: Fill
+  liquidation?: LiquidationInfo
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,6 +64,15 @@ func (m *fakeMarket) setLevels(coin string, bids, asks []hyperliquid.Level) {
 	m.tickers[coin] = t
 }
 
+// setFunding sets coin's hourly funding rate and oracle price.
+func (m *fakeMarket) setFunding(coin, rate, oracle string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t := m.tickers[coin]
+	t.Funding, t.OraclePx = d(rate), d(oracle)
+	m.tickers[coin] = t
+}
+
 func (m *fakeMarket) setStale(coin string, stale bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -84,6 +94,8 @@ var testConfig = Config{
 }
 
 type harness struct {
+	clock atomic.Pointer[time.Time] // nil: real time
+	mode  string                    // liquidation mode; default forfeit
 	t     *testing.T
 	pool  *pgxpool.Pool
 	store *accounts.Store
@@ -120,7 +132,16 @@ func (h *harness) start() {
 	if h.stop != nil {
 		h.stop()
 	}
-	h.eng = New(h.pool, h.md, nopPub{}, testConfig)
+	cfg := testConfig
+	cfg.LiquidationMode = h.mode
+	cfg.RiskInterval = time.Hour // tests run risk checks explicitly with runRisk
+	cfg.Now = func() time.Time {
+		if t := h.clock.Load(); t != nil {
+			return *t
+		}
+		return time.Now().UTC()
+	}
+	h.eng = New(h.pool, h.md, nopPub{}, cfg)
 	ctx, cancel := context.WithCancel(context.Background())
 	h.stop = cancel
 	h.t.Cleanup(cancel)
@@ -134,6 +155,21 @@ func (h *harness) start() {
 	}
 }
 
+func (h *harness) setClock(t time.Time) { h.clock.Store(&t) }
+
+// runRisk runs one liquidation and funding pass on the engine goroutine.
+func (h *harness) runRisk() {
+	h.t.Helper()
+	err := h.eng.do(context.Background(), func(ctx context.Context) error {
+		h.eng.checkRisk(ctx)
+		h.eng.settleFunding(ctx)
+		return nil
+	})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+}
+
 func (h *harness) newAccount() uuid.UUID {
 	h.t.Helper()
 	c, err := h.store.Create(context.Background())
@@ -144,7 +180,11 @@ func (h *harness) newAccount() uuid.UUID {
 }
 
 func (h *harness) place(id uuid.UUID, side, typ, sz, px string) (OrderResult, error) {
-	req := OrderRequest{Coin: "BTC", Side: side, Type: typ, Sz: d(sz)}
+	return h.placeOn(id, "BTC", side, typ, sz, px)
+}
+
+func (h *harness) placeOn(id uuid.UUID, coin, side, typ, sz, px string) (OrderResult, error) {
+	req := OrderRequest{Coin: coin, Side: side, Type: typ, Sz: d(sz)}
 	if px != "" {
 		req.Px = decimal.NewNullDecimal(d(px))
 	}

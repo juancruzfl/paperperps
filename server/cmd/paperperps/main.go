@@ -74,6 +74,7 @@ func run() error {
 		MaxSlippage:     decimal.RequireFromString("0.05"),
 		MinNotional:     decimal.NewFromInt(10),
 		DefaultLeverage: 20,
+		LiquidationMode: cfg.LiquidationMode,
 	})
 	srv := &http.Server{
 		Addr: net.JoinHostPort("", cfg.Port),

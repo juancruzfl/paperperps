@@ -38,6 +38,18 @@ export const api = {
   ) => request<OrderResult>('/api/orders', { method: 'POST', secret, body: JSON.stringify(order) }),
   cancelOrder: (secret: string, id: string) =>
     request<void>(`/api/orders/${encodeURIComponent(id)}`, { method: 'DELETE', secret }),
+  setMarginMode: (secret: string, coin: string, mode: 'cross' | 'isolated') =>
+    request<void>(`/api/me/margin-mode/${encodeURIComponent(coin)}`, {
+      method: 'PUT',
+      secret,
+      body: JSON.stringify({ mode }),
+    }),
+  adjustIsolatedMargin: (secret: string, coin: string, amount: string) =>
+    request<void>(`/api/me/isolated-margin/${encodeURIComponent(coin)}`, {
+      method: 'POST',
+      secret,
+      body: JSON.stringify({ amount }),
+    }),
   setLeverage: (secret: string, coin: string, leverage: number) =>
     request<void>(`/api/me/leverage/${encodeURIComponent(coin)}`, {
       method: 'PUT',

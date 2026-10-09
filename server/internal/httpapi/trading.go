@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"github.com/juancruzfl/paperperps/server/internal/accounts"
 	"github.com/juancruzfl/paperperps/server/internal/engine"
@@ -176,6 +177,43 @@ func handleSetLeverage(eng *engine.Engine) http.HandlerFunc {
 		defer cancel()
 		if err := eng.SetLeverage(ctx, accountID(r), r.PathValue("coin"), body.Leverage); err != nil {
 			engineError(w, "set leverage", err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func handleSetMarginMode(eng *engine.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Mode string `json:"mode"`
+		}
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), engineTimeout)
+		defer cancel()
+		if err := eng.SetMarginMode(ctx, accountID(r), r.PathValue("coin"), body.Mode); err != nil {
+			engineError(w, "set margin mode", err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleAdjustIsolatedMargin adds (positive amount) or removes (negative) isolated margin.
+func handleAdjustIsolatedMargin(eng *engine.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Amount decimal.Decimal `json:"amount"`
+		}
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), engineTimeout)
+		defer cancel()
+		if err := eng.AdjustIsolatedMargin(ctx, accountID(r), r.PathValue("coin"), body.Amount); err != nil {
+			engineError(w, "adjust isolated margin", err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

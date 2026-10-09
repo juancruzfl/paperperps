@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { describeFill, refreshAccount, useAccount } from '../lib/account'
 import { formatNumber, formatUsd, pxDecimals } from '../lib/format'
-import { coinStates, maxOrderSize, summarize } from '../lib/margin'
+import { coinStates, maintenanceRate, maxOrderSize, projectedLiquidationPrice, summarize, type CoinState } from '../lib/margin'
 import { useBook, useTickers } from '../lib/market'
 import { toast } from '../lib/toasts'
 import type { OrderType, Side, Ticker } from '../lib/types'
 import { LeverageControl } from './LeverageControl'
+import { MarginModeControl } from './MarginControls'
 
 // Mirrors the server defaults (server/internal/config, engine.Config).
 const TAKER_FEE = 0.00045
@@ -37,8 +38,10 @@ export function OrderForm({ ticker }: { ticker: Ticker | undefined }) {
   const position = me?.positions.find((p) => p.coin === coin)
   const leverage = position?.leverage ?? Math.min(DEFAULT_LEVERAGE, ticker?.maxLeverage ?? DEFAULT_LEVERAGE)
   const positionSize = Number(position?.size ?? 0)
+  const mode = position?.marginMode ?? 'cross'
 
-  const summary = useMemo(() => (me ? summarize(Number(me.balance), coinStates(me, tickers)) : null), [me, tickers])
+  const states = useMemo(() => (me ? coinStates(me, tickers) : []), [me, tickers])
+  const summary = useMemo(() => (me ? summarize(Number(me.balance), states) : null), [me, states])
 
   const refPx = type === 'limit' ? Number(price) || 0 : buy ? Number(book?.asks[0]?.px ?? mid) : Number(book?.bids[0]?.px ?? mid)
   const sz = Number(size) || 0
@@ -60,6 +63,17 @@ export function OrderForm({ ticker }: { ticker: Ticker | undefined }) {
     type === 'market' ||
     (buy ? refPx >= Number(book?.asks[0]?.px ?? Infinity) : refPx <= Number(book?.bids[0]?.px ?? 0))
   const fee = notional * (crossesBook ? TAKER_FEE : MAKER_FEE)
+
+  // Liquidation estimate for the position this order would leave.
+  let liqPx: number | null = null
+  if (me && sz > 0 && refPx > 0) {
+    const flat: CoinState = {
+      coin, size: 0, entryPx: 0, leverage, markPx: mid, orders: [],
+      isolated: mode === 'isolated', isolatedMargin: 0, maintenanceRate: maintenanceRate(ticker?.maxLeverage ?? leverage),
+    }
+    const withCoin = states.some((c) => c.coin === coin) ? states : [...states, flat]
+    liqPx = projectedLiquidationPrice(withCoin, Number(me.balance), coin, buy, sz, refPx, fee)
+  }
 
   const setFraction = (f: number) => {
     const step = 10 ** szDecimals
@@ -113,7 +127,7 @@ export function OrderForm({ ticker }: { ticker: Ticker | undefined }) {
       }}
     >
       <div className="form-row between">
-        <span className="muted">Cross</span>
+        <MarginModeControl coin={coin} mode={mode} />
         {ticker && <LeverageControl coin={coin} leverage={leverage} maxLeverage={ticker.maxLeverage} />}
       </div>
 
@@ -191,6 +205,10 @@ export function OrderForm({ ticker }: { ticker: Ticker | undefined }) {
           <dd>{usd(fee)}</dd>
         </div>
         <div>
+          <dt>Est. liq. price</dt>
+          <dd>{liqPx === null ? '—' : formatNumber(liqPx, pxDec)}</dd>
+        </div>
+        <div>
           <dt>Max size</dt>
           <dd>
             {formatNumber(maxSz, szDecimals)} {coin}
@@ -214,7 +232,9 @@ function AccountSummary({ summary }: { summary: ReturnType<typeof summarize> }) 
     ['Account value', summary.accountValue],
     ['Balance', summary.balance],
     ['Unrealized PnL', summary.unrealizedPnl, true],
-    ['Margin used', summary.marginUsed],
+    ['Cross margin used', summary.marginUsed],
+    ['Cross maintenance', summary.crossMaintenance],
+    ['Isolated margin', summary.isolatedMargin],
     ['Reserved by orders', summary.orderMargin],
   ]
   return (

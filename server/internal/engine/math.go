@@ -95,11 +95,40 @@ type RestingOrder struct {
 
 // CoinState is an account's exposure on one coin.
 type CoinState struct {
+	Coin     string
 	Size     decimal.Decimal // signed
 	EntryPx  decimal.Decimal
 	Leverage int
 	MarkPx   decimal.Decimal
 	Orders   []RestingOrder
+
+	// Isolated positions have their own margin, carved out of the cash balance.
+	Isolated       bool
+	IsolatedMargin decimal.Decimal
+	// MaintenanceRate is the fraction of notional the position must keep as equity.
+	MaintenanceRate decimal.Decimal
+}
+
+// MaintenanceRate is Hyperliquid's maintenance margin rule: half the initial margin at max
+// leverage. Margin tiers only start at millions of dollars of notional, far beyond what a
+// paper account reaches, so the first tier is the only one modeled.
+func MaintenanceRate(maxLeverage int) decimal.Decimal {
+	return one.Div(decimal.NewFromInt(int64(2 * max(maxLeverage, 1))))
+}
+
+// MaintenanceMargin is the equity the position needs to avoid liquidation.
+func (c CoinState) MaintenanceMargin() decimal.Decimal {
+	return c.Size.Abs().Mul(c.MarkPx).Mul(c.MaintenanceRate)
+}
+
+// IsolatedEquity is an isolated position's margin plus its unrealized PnL.
+func (c CoinState) IsolatedEquity() decimal.Decimal {
+	return c.IsolatedMargin.Add(c.UnrealizedPnl())
+}
+
+// IsolatedLiquidatable reports whether an isolated position is below maintenance.
+func (c CoinState) IsolatedLiquidatable() bool {
+	return c.Isolated && !c.Size.IsZero() && c.IsolatedEquity().LessThan(c.MaintenanceMargin())
 }
 
 // UnrealizedPnl at the mark price.
@@ -143,27 +172,64 @@ func (c CoinState) OrderMargin() decimal.Decimal {
 	return margin
 }
 
-// Summary is an account's cross-margin state.
+// Summary is an account's margin state.
 type Summary struct {
-	Balance       decimal.Decimal `json:"balance"`       // cash: deposits + realized PnL - fees
-	UnrealizedPnl decimal.Decimal `json:"unrealizedPnl"` // at mark
+	Balance       decimal.Decimal `json:"balance"`       // cash: deposits + realized PnL - fees ± funding
+	UnrealizedPnl decimal.Decimal `json:"unrealizedPnl"` // all positions, at mark
 	AccountValue  decimal.Decimal `json:"accountValue"`  // balance + unrealized PnL
-	MarginUsed    decimal.Decimal `json:"marginUsed"`    // by open positions
-	OrderMargin   decimal.Decimal `json:"orderMargin"`   // reserved by resting orders
-	Available     decimal.Decimal `json:"available"`     // free to open new exposure
+
+	// Cross margin: everything except isolated positions and their margin.
+	CrossAccountValue decimal.Decimal `json:"crossAccountValue"` // balance - isolated margin + cross unrealized PnL
+	MarginUsed        decimal.Decimal `json:"marginUsed"`        // initial margin of cross positions
+	CrossMaintenance  decimal.Decimal `json:"crossMaintenance"`  // cross liquidates below this
+	IsolatedMargin    decimal.Decimal `json:"isolatedMargin"`    // allocated to isolated positions
+	OrderMargin       decimal.Decimal `json:"orderMargin"`       // reserved by resting orders
+	Available         decimal.Decimal `json:"available"`         // free to open new exposure
 }
 
-// Summarize computes the cross-margin summary of balance plus coins.
+// CrossLiquidatable reports whether the cross positions are below maintenance.
+func (s Summary) CrossLiquidatable() bool {
+	return s.CrossMaintenance.IsPositive() && s.CrossAccountValue.LessThan(s.CrossMaintenance)
+}
+
+// Summarize computes the margin summary of balance plus coins.
 func Summarize(balance decimal.Decimal, coins []CoinState) Summary {
 	s := Summary{Balance: balance}
+	crossUpnl := zero
 	for _, c := range coins {
-		s.UnrealizedPnl = s.UnrealizedPnl.Add(c.UnrealizedPnl())
-		s.MarginUsed = s.MarginUsed.Add(c.PositionMargin())
+		upnl := c.UnrealizedPnl()
+		s.UnrealizedPnl = s.UnrealizedPnl.Add(upnl)
 		s.OrderMargin = s.OrderMargin.Add(c.OrderMargin())
+		if c.Isolated {
+			s.IsolatedMargin = s.IsolatedMargin.Add(c.IsolatedMargin)
+			continue
+		}
+		crossUpnl = crossUpnl.Add(upnl)
+		s.MarginUsed = s.MarginUsed.Add(c.PositionMargin())
+		s.CrossMaintenance = s.CrossMaintenance.Add(c.MaintenanceMargin())
 	}
 	s.AccountValue = balance.Add(s.UnrealizedPnl)
-	s.Available = s.AccountValue.Sub(s.MarginUsed).Sub(s.OrderMargin)
+	s.CrossAccountValue = balance.Sub(s.IsolatedMargin).Add(crossUpnl)
+	s.Available = s.CrossAccountValue.Sub(s.MarginUsed).Sub(s.OrderMargin)
 	return s
+}
+
+// IsolatedMarginAfter returns an isolated position's margin after it changes from oldSize
+// to newSize at px. Opening or adding allocates initial margin for the added size;
+// reducing releases margin in proportion; flipping starts over for the new side.
+func IsolatedMarginAfter(oldSize, oldMargin, newSize, px decimal.Decimal, leverage int) decimal.Decimal {
+	lev := decimal.NewFromInt(int64(leverage))
+	switch {
+	case newSize.IsZero():
+		return zero
+	case oldSize.IsZero() || newSize.Sign() != oldSize.Sign():
+		return newSize.Abs().Mul(px).Div(lev).Round(usdDecimals)
+	case newSize.Abs().GreaterThan(oldSize.Abs()):
+		added := newSize.Abs().Sub(oldSize.Abs())
+		return oldMargin.Add(added.Mul(px).Div(lev)).Round(usdDecimals)
+	default:
+		return oldMargin.Mul(newSize.Abs()).Div(oldSize.Abs()).Round(usdDecimals)
+	}
 }
 
 // --- validation ---
