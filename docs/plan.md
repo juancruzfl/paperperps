@@ -33,9 +33,9 @@ Nothing is placed on-chain.
 | v1 scope | Trading terminal + **leaderboard**, **account reset**, **liquidations & funding**, **advanced orders** (TP/SL, reduce-only, post-only/IOC, triggers). |
 | Reset | **24h cooldown.** Resetting does **not** remove you from the leaderboard (§5.3). |
 | Leaderboard | Ranked by **absolute PnL** (§5.4). |
-| Liquidations | **Liquidation fee charged** (§4.6). |
+| Liquidations | **Liquidation fee = forfeit the remaining margin**, modeled on HL's backstop liquidation (§4.6). |
 | Stack | TypeScript (React) frontend, **Go** backend, Postgres. |
-| Hosting | **Railway** (app + Postgres), custom domain from **Porkbun** (§8.1). |
+| Hosting | **Railway** (app + Postgres), domain **paperperps.lol** from **Porkbun** (§8.1). |
 
 ---
 
@@ -168,7 +168,16 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
     next coin by volume takes its place.
   - Review it manually (e.g. monthly). A coin removed from the list becomes **close-only**:
     no new positions, reduce-only orders allowed. It is hidden once nobody holds it.
-- Each market uses its `szDecimals`, tick/price rules and `maxLeverage` from `meta`.
+  - **Initial list (from mainnet 24h volume on 2026-10-09):** `BTC, ETH, HYPE, NEAR, SOL,
+    PUMP, VVV, WLD, LIT, SUI, ZRO, DOGE, MET, PONS, ONDO, ADA, TAO, FARTCOIN, XPL, XMR`.
+    ZEC, XRP, ENA, STRK and UNI ranked in the top 20 on mainnet but aren't listed on
+    testnet, so they were skipped. That gap is one more reason to consider the mainnet
+    fallback.
+- Each market uses its `szDecimals`, tick/price rules and `maxLeverage` from the **data
+  network's** `meta`. The two networks don't always agree: on 2026-10-09 SOL was 20× on
+  mainnet but 10× on testnet, and NEAR was 10× on mainnet but 20× on testnet. Leverage
+  limits therefore change when `HL_NETWORK` changes. Existing positions above a new cap stay
+  open, but can't be increased.
 - Orders are validated the way HL validates them: price significant figures and decimals,
   size decimals, and minimum order value (about $10 notional).
 
@@ -220,12 +229,24 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
   margin.
 - Execution: close the position by walking the book like a market order. If the book is too
   thin, close at mark price.
-- **Liquidation fee:** charged on top of the normal taker fee, as a % of the liquidated
-  notional (`LIQUIDATION_FEE_RATE`, configurable). It is capped at the margin remaining in
-  the position (isolated) or the account (cross), so it can never push equity below $0.
-  - Proposed default: 0.5%. Check this against current HL docs before launch.
-  - The fee appears as its own ledger entry and in the liquidation notification, so users
-    can see what being liquidated cost them.
+- **Liquidation fee: forfeit the remaining margin.** HL itself charges no explicit
+  liquidation fee. In its *backstop* liquidation, though, the liquidated positions and
+  their margin pass to the liquidator vault, and "the maintenance margin is not returned to
+  the user". We use that backstop outcome as our fee. After the close, the user loses:
+  - **Isolated:** the margin left in that position. Cross margin and other positions are
+    untouched.
+  - **Cross:** the remaining cross equity. Isolated positions are untouched.
+
+  Liquidation only happens once equity is already below maintenance margin, so the fee is
+  bounded by MM (1.25%–16.7% of notional depending on the asset). It can never push equity
+  below $0, and it needs no arbitrary rate to tune.
+  - Lesson for users: on PaperPerps, getting liquidated wipes out that margin, like the
+    worst case on HL.
+  - The fee is charged on top of the normal taker fee, appears as its own `liquidation_fee`
+    ledger entry, and is shown in the liquidation notification.
+  - `LIQUIDATION_MODE=forfeit` is the default. `LIQUIDATION_MODE=market` keeps the
+    remainder like HL's normal market liquidation, in case forfeiting feels too harsh in
+    practice.
 - If equity goes negative (bad debt from gaps), set the balance to $0 and record it. Users
   can never owe money.
 - The user gets a liquidation notification and a ledger entry.
@@ -278,8 +299,8 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
     unrealized PnL locked in at each reset.
 - Windows: 24h, 7d, 30d, all-time. A window score is the change in that cumulative PnL over
   the window, so it also spans resets.
-- Eligibility: at least N trades and an account at least M hours old, to filter out lottery
-  tickets.
+- Eligibility: at least **5 trades** and an account at least **24 hours** old, to filter out
+  lottery tickets (`LEADERBOARD_MIN_TRADES=5`, `LEADERBOARD_MIN_AGE=24h`).
 - Shows handle, PnL, volume, number of trades and number of resets. Opt-out is possible.
 - Computed from periodic equity snapshots (e.g. every 5 min) stored in `equity_snapshots`.
   The same snapshots drive the account's PnL chart.
@@ -337,30 +358,44 @@ Postgres). Never floats.
 
 | Railway service | What it is |
 |---|---|
-| `app` | One Go service built from a multi-stage Dockerfile: build the Vite frontend, build the Go binary, copy both into a small runtime image. The Go server serves the static SPA, the REST API (`/api/*`) and the websocket (`/ws`) **from one origin**, so there is no CORS and only one domain to wire up. |
+| `app` | One Go service built from the root multi-stage `Dockerfile` (Railway auto-detects it): build the Vite frontend, build the Go binary, copy both into a small runtime image. The Go server serves the static SPA, the REST API (`/api/*`) and the websocket (`/ws`) **from one origin**, so there is no CORS and only one domain to wire up. |
 | `postgres` | Railway's managed Postgres. `DATABASE_URL` is injected into `app` with a variable reference. |
 
 **Config (Railway variables):** `DATABASE_URL`, `HL_NETWORK`, `MARKETS`, `RESET_COOLDOWN`,
-`LIQUIDATION_FEE_RATE`, `TAKER_FEE_RATE`, `MAKER_FEE_RATE`, `PORT` (set by Railway).
+`LIQUIDATION_MODE`, `TAKER_FEE_RATE`, `MAKER_FEE_RATE`, `LEADERBOARD_MIN_TRADES`,
+`LEADERBOARD_MIN_AGE`, `PORT` (set by Railway). The full list with defaults is in
+`.env.example`.
+
+**Service settings live in the Railway dashboard, not in a repo config file.** Railway's
+`railway.toml` (Config as Code) is deprecated and stops working for legacy services on
+2026-12-01. Its replacement, Infrastructure as Code (`.railway/railway.ts`), doesn't yet
+document Dockerfile builds. Revisit IaC once it does. Step-by-step setup is in
+`docs/deploy.md`.
 
 **Single engine instance**
 - The engine is stateful, so `app` runs with **1 replica**.
 - Railway deploys can briefly run the old and new containers side by side. To stop both
   from matching orders, charging funding or liquidating at once, the engine takes a
-  **Postgres advisory lock** at startup. Only the lock holder runs the engine and the
-  upstream feed. A new container waits for the lock, which the old one releases on
-  `SIGTERM` (graceful shutdown).
+  **Postgres advisory lock** on a dedicated connection. Only the lock holder runs the engine
+  and the upstream feed. A new container waits for the lock. The old one releases it on
+  `SIGTERM`, and if it is killed outright, Postgres releases the lock when its connection
+  drops.
+- **Health check (`/healthz`) passes as soon as HTTP is up and the DB is reachable, not
+  when the engine holds the lock.** Railway only stops the old container once the new one
+  is healthy. Gating health on the lock would deadlock: the new container waits for the
+  lock, and the old one never stops. `/api/status` reports `engine: leader|standby`, and
+  trading endpoints return `503 engine_starting` until the lock is held.
 - Expect a few seconds of order-entry downtime per deploy. The UI shows "reconnecting…" and
   the client websocket resubscribes on its own.
-- Health check: `/healthz` returns OK only once the engine holds the lock and market data is
-  fresh.
+- If the leader loses its lock connection, the process exits and Railway restarts it.
+  Running the engine without the lock is never allowed.
 
 **Domain (Porkbun → Railway)**
-1. Buy the domain on Porkbun.
+1. Buy `paperperps.lol` on Porkbun.
 2. In Railway, open `app` → Settings → Networking → *Custom Domain*, add the domain, and
    note the target Railway gives you.
 3. In Porkbun DNS:
-   - **Apex** (`example.com`): add an **ALIAS** record to the Railway target, since apex
+   - **Apex** (`paperperps.lol`): add an **ALIAS** record to the Railway target, since apex
      domains can't use CNAME.
    - **`www`**: add a **CNAME** to the same target, and redirect `www` → apex in the app.
 4. Railway issues the TLS certificate automatically once DNS resolves.
@@ -377,6 +412,9 @@ be used. Watch Railway usage in the first weeks.
 Repo layout (`/web`, `/server`, `/docs`), Docker Compose, Postgres migrations, CI,
 multi-stage Dockerfile, Railway project with a "hello world" deploy on the Porkbun domain.
 Deploying on day one means hosting problems show up early.
+*Status (2026-10-09): code complete and verified locally (tests, two-instance lock
+handoff, production image). Deploy deferred by the owner: domain purchase and Railway setup
+(`docs/deploy.md`) happen later.*
 
 **M1 — Market data**
 Upstream testnet ws ingestion, `MarketState`, client ws fan-out, market list + chart + book +
@@ -412,24 +450,30 @@ disclaimer copy, and an A/B check of testnet vs mainnet data to decide the defau
 
 | Risk | Mitigation |
 |---|---|
-| **Testnet data quality:** thin books, odd prices, mark/oracle quirks, occasional testnet resets or downtime. This can make the simulation feel unlike real trading. | Make the data source configurable (`HL_NETWORK=testnet|mainnet`) so we can switch to mainnet public data (still read-only, no signing) if testnet is unusable. Stale-data halts. |
+| **Testnet data quality:** thin books, odd prices, mark/oracle quirks, occasional testnet resets or downtime. This can make the simulation feel unlike real trading. | Make the data source configurable (`HL_NETWORK` = `testnet` or `mainnet`) so we can switch to mainnet public data (still read-only, no signing) if testnet is unusable. Stale-data halts. |
 | Fill realism (no queue position, no market impact) | Conservative trade-through rule for limit orders; per-snapshot level depletion; document the simplifications in a "How fills work" page. |
 | HL API rate/subscription limits | One upstream connection shared by all users; cache candles server-side. |
 | Leaderboard gaming via throwaway accounts (absolute PnL rewards max-leverage lottery bets across many accounts) | Per-IP creation limits; eligibility thresholds; resets don't erase losses (§5.3). |
-| Redeploys on Railway overlapping two engine instances | Postgres advisory lock + graceful shutdown; idempotent funding (§8.1). |
+| Redeploys on Railway overlapping two engine instances | Postgres advisory lock + graceful shutdown; health check independent of lock; idempotent funding (§8.1). |
 | Lost secret = lost account | Prompt users clearly to save the recovery key; accepted trade-off of no-login. |
 | Stateful single process limits scale | Fine for v1. Later, shard markets across engine instances behind a message bus. |
 
 ---
 
-## 11. Open questions
+## 11. Decision log
 
-Resolved 2026-10-09: Go backend; mainnet fallback allowed; 24h reset cooldown and resets
-stay on the leaderboard; absolute PnL ranking; liquidation fee charged; top 20 markets;
-Railway + Porkbun hosting.
+All open questions are resolved.
 
-Still open:
-1. **Leaderboard eligibility thresholds:** minimum trades (N) and account age (M) in §5.4.
-   Proposed: N = 5 trades, M = 24h.
-2. **Liquidation fee rate:** 0.5% proposed. Confirm after checking HL docs.
-3. **Domain name:** needed for M0's deploy.
+- **2026-10-09:**
+  - Go backend.
+  - Mainnet fallback allowed.
+  - 24h reset cooldown; resets stay on the leaderboard.
+  - Leaderboard ranks by absolute PnL.
+  - Liquidation fee charged.
+  - Top 20 markets.
+  - Hosting on Railway with a Porkbun domain.
+- **2026-10-09:**
+  - Leaderboard eligibility: 5 trades and account age of 24h.
+  - Liquidation fee: forfeit the remaining margin, modeled on HL's backstop (§4.6).
+    Recommended by Claude; the owner deferred.
+  - Domain: `paperperps.lol`, not yet purchased.
