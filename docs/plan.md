@@ -122,9 +122,15 @@ filled by our own simulation engine. Nothing is placed on-chain.
   connection and subscription limits.
 
 ### 3.2 Matching & Risk Engine
-Each market has a single goroutine that owns its resting orders and consumes `MarketState`
-events, so no locks are needed on the hot path. A separate risk loop handles margin and
-liquidations across markets.
+**As built (M2):** one engine goroutine owns all trading state (accounts in use, resting
+orders by coin). It processes API commands and market events (book changes, new trades)
+in sequence, so cross-margin math never races and needs no locks.
+- Each change is committed to Postgres in a single transaction before memory is updated.
+- Market events reach the engine through a buffered queue that never blocks the feed. If
+  the queue is full, the event is dropped, which only delays a fill until the next event.
+- At about 100 market events/second across 20 coins this is plenty. Splitting into
+  per-market goroutines (the original idea) only becomes worth it if profiling says so.
+- The M3 risk loop (liquidations, funding) will run on the same goroutine.
 
 ### 3.3 Ledger & persistence
 - Postgres is the source of truth for accounts, orders, fills, positions and ledger entries.
@@ -134,27 +140,40 @@ liquidations across markets.
 - Redis is not needed for v1 because a single process holds the hot state. Add it only when
   we scale horizontally.
 
-### 3.4 API surface (draft)
+### 3.4 API surface
+
+Built (M1–M2):
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/accounts` | Create an anonymous account → `{accountId, secret}` |
-| POST | `/accounts/restore` | Exchange a secret for a session token |
-| GET | `/me` | Balance, equity, margin summary |
-| PATCH | `/me` | Set handle, leaderboard opt-in |
-| POST | `/me/reset` | Reset to $1,000 (cooldown enforced) |
-| GET | `/markets` | Asset list + context |
-| GET | `/markets/:coin/candles` | Proxied/cached candles |
-| POST | `/orders` | Place order(s), including TP/SL groups |
-| DELETE | `/orders/:id` | Cancel |
-| POST | `/orders/:id/modify` | Modify price/size |
-| PUT | `/positions/:coin/leverage` | Set leverage + cross/isolated |
-| POST | `/positions/:coin/margin` | Add/remove isolated margin |
-| GET | `/positions`, `/orders`, `/fills`, `/funding` | History |
-| GET | `/leaderboard?window=` | Rankings |
-| WS | `/ws` | Market channels + private user channel (fills, orders, positions, account) |
+| POST | `/api/accounts` | Create an anonymous account → `{accountId, secret, handle}` |
+| GET | `/api/me` | Balance, positions (incl. leverage settings), open orders, margin summary at live marks |
+| GET | `/api/me/orders`, `/api/me/fills`, `/api/me/funding` | History (latest 200) |
+| PUT | `/api/me/leverage/{coin}` | Set leverage (cross) |
+| POST | `/api/orders` | Place a market or limit (GTC) order: `{coin, side, type, sz, px?}` |
+| DELETE | `/api/orders/{id}` | Cancel an open order |
+| GET | `/api/markets` | Tickers for the enabled markets |
+| GET | `/api/markets/{coin}/candles?interval=` | Last 500 bars, cached 10s |
+| GET | `/api/status` | Version, engine leader/standby, network, markets |
+| WS | `/ws` | Topics: `markets`, `book:<coin>`, `trades:<coin>`, and private `account:<id>` (needs `token`) |
 
-Auth: `Authorization: Bearer <secret>`. Only `sha256(secret)` is stored.
+There is no separate restore endpoint. A recovery link (`/restore#<secret>`) just makes the
+browser use that secret.
+
+Planned:
+
+| Method | Path | Purpose | Milestone |
+|---|---|---|---|
+| PATCH | `/api/me` | Set handle, leaderboard opt-in | M5 |
+| POST | `/api/me/reset` | Reset to $1,000 (cooldown enforced) | M5 |
+| POST | `/api/orders/{id}/modify` | Modify price/size | M4 |
+| PUT/POST | `/api/me/leverage/{coin}`, isolated margin | Cross/isolated, add/remove margin | M3 |
+| GET | `/api/leaderboard?window=` | Rankings | M5 |
+
+Auth: `Authorization: Bearer <secret>`. Only `sha256(secret)` is stored. Errors are
+`{error: <code>, message}`. Order rejections use codes such as `insufficient_margin`,
+`min_notional`, `invalid_price`, `invalid_size`, `market_stale` and `no_liquidity`, and
+return `503 engine_unavailable` while a deploy hands over the engine.
 
 ---
 
@@ -446,6 +465,19 @@ fill because there are almost no trades, and funding would drain longs. The owne
 Anonymous accounts, recovery key, market + limit (GTC) orders, cross margin, positions,
 fees, ledger, history tabs. *Done when: a new visitor can open and close a BTC long and see
 correct PnL and fees.*
+*Status (2026-10-09): done.*
+- **Acceptance test (`TestOpenAndCloseLong`):** open 0.01 BTC at $82,000 and close at
+  $83,000 → +$10 PnL, fees $0.369 + $0.3735, balance $1,009.2575, equal to the ledger sum.
+  Also verified in a real browser on mainnet data.
+- **Also done:** leverage setting (moved up from M3, since cross margin needs it), order
+  history, and the private websocket topic for fill notifications.
+- **Matching rules as built:**
+  - Market orders are IOC within 5% of mid; any remainder is cancelled with a reason.
+  - Limits that cross take liquidity first, then rest GTC.
+  - Resting limits fill at their own price as maker when a trade prints through the price
+    or the opposite best quote crosses it. Trades from before the order was placed are
+    ignored.
+  - A resting fill that would breach margin cancels the order instead.
 
 **M3 — Risk**
 Isolated margin, leverage controls, maintenance margin, liquidation engine, funding

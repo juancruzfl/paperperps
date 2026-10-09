@@ -2,17 +2,38 @@ package db
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 	"os"
 	"testing"
+	"time"
 )
 
+// TestMigrateUpDownUp runs in its own database: rolling migrations back would break other
+// packages' tests, which share TEST_DATABASE_URL and run in parallel.
 func TestMigrateUpDownUp(t *testing.T) {
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
+	base := os.Getenv("TEST_DATABASE_URL")
+	if base == "" {
 		t.Skip("TEST_DATABASE_URL not set")
 	}
 	ctx := context.Background()
-	pool, err := Open(ctx, url)
+	admin, err := Open(ctx, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	name := fmt.Sprintf("paperperps_migrate_%d", time.Now().UnixNano())
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
+
+	u, err := url.Parse(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.Path = "/" + name
+	pool, err := Open(ctx, u.String())
 	if err != nil {
 		t.Fatal(err)
 	}

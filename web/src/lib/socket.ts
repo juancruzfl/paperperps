@@ -15,6 +15,8 @@ export type ConnectionState = 'connecting' | 'open' | 'closed'
 export class MarketSocket {
   private ws: WebSocket | null = null
   private readonly handlers = new Map<string, Set<Handler>>()
+  // Extra fields sent with a topic's subscribe request, e.g. the token for account topics.
+  private readonly params = new Map<string, Record<string, string>>()
   private state: ConnectionState = 'closed'
   private readonly listeners = new Set<() => void>()
   private retries = 0
@@ -26,14 +28,15 @@ export class MarketSocket {
   }
 
   /** Subscribe handler to topic. Returns a function that undoes it. */
-  subscribe(topic: string, handler: Handler): () => void {
+  subscribe(topic: string, handler: Handler, params?: Record<string, string>): () => void {
     // Wrap so the same function can be subscribed twice and unsubscribed independently.
     const h: Handler = (msg) => handler(msg)
     let set = this.handlers.get(topic)
     if (!set) {
       set = new Set()
       this.handlers.set(topic, set)
-      this.send({ op: 'subscribe', topic })
+      if (params) this.params.set(topic, params)
+      this.send({ op: 'subscribe', topic, ...params })
     }
     set.add(h)
     this.connect()
@@ -44,6 +47,7 @@ export class MarketSocket {
       current.delete(h)
       if (current.size === 0) {
         this.handlers.delete(topic)
+        this.params.delete(topic)
         this.send({ op: 'unsubscribe', topic })
       }
     }
@@ -61,7 +65,7 @@ export class MarketSocket {
     for (const l of this.listeners) l()
   }
 
-  private send(msg: { op: string; topic: string }) {
+  private send(msg: { op: string; topic: string; [key: string]: string }) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg))
   }
 
@@ -74,7 +78,9 @@ export class MarketSocket {
     ws.onopen = () => {
       this.retries = 0
       this.setState('open')
-      for (const topic of this.handlers.keys()) this.send({ op: 'subscribe', topic })
+      for (const topic of this.handlers.keys()) {
+        this.send({ op: 'subscribe', topic, ...this.params.get(topic) })
+      }
     }
 
     ws.onmessage = (ev: MessageEvent<string>) => {

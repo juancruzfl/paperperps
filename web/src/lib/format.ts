@@ -31,6 +31,17 @@ export function formatNumber(value: string | number, decimals: number): string {
   return Number.isFinite(n) ? fixed(decimals).format(n) : '—'
 }
 
+/** $1,234.56, or -$1,234.56; signed adds + to positive amounts. */
+export function formatUsd(value: number, opts: { signed?: boolean; decimals?: number } = {}): string {
+  if (!Number.isFinite(value)) return '—'
+  const decimals = opts.decimals ?? 2
+  const abs = fixed(decimals).format(Math.abs(value))
+  // Treat anything that rounds to zero as zero, so we never print -$0.00.
+  const isZero = Number(abs.replace(/,/g, '')) === 0
+  const sign = isZero ? '' : value < 0 ? '-' : opts.signed ? '+' : ''
+  return `${sign}$${abs}`
+}
+
 const compactUsd = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',

@@ -3,12 +3,14 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 
 	"github.com/juancruzfl/paperperps/server/internal/hub"
 )
@@ -20,7 +22,9 @@ func TestWebsocketSubscribeFlow(t *testing.T) {
 		}
 		return nil, false
 	})
-	srv := httptest.NewServer(handleWS(h))
+	srv := httptest.NewServer(handleWS(h, func(context.Context, string) (uuid.UUID, error) {
+		return uuid.Nil, errors.New("no accounts in this test")
+	}))
 	defer srv.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -75,4 +79,50 @@ func TestWebsocketSubscribeFlow(t *testing.T) {
 	}
 
 	conn.Close(websocket.StatusNormalClosure, "")
+}
+
+func TestWebsocketAccountTopicNeedsOwnersToken(t *testing.T) {
+	owner := uuid.New()
+	h := hub.New(func(string) (any, bool) { return nil, true })
+	srv := httptest.NewServer(handleWS(h, func(_ context.Context, token string) (uuid.UUID, error) {
+		if token == "owner-secret" {
+			return owner, nil
+		}
+		return uuid.Nil, errors.New("unauthorized")
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+
+	topic := "account:" + owner.String()
+	for _, token := range []string{"", "someone-else"} {
+		buf, _ := json.Marshal(clientRequest{Op: "subscribe", Topic: topic, Token: token})
+		conn.Write(ctx, websocket.MessageText, buf)
+		_, reply, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(reply), "unauthorized") {
+			t.Errorf("token %q: reply = %s, want unauthorized", token, reply)
+		}
+	}
+	if h.Subscribers(topic) != 0 {
+		t.Fatal("subscribed without the owner's token")
+	}
+
+	buf, _ := json.Marshal(clientRequest{Op: "subscribe", Topic: topic, Token: "owner-secret"})
+	conn.Write(ctx, websocket.MessageText, buf)
+	deadline := time.Now().Add(2 * time.Second)
+	for h.Subscribers(topic) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("owner could not subscribe")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }

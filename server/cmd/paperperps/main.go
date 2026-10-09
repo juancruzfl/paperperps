@@ -10,11 +10,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/shopspring/decimal"
+
+	"github.com/juancruzfl/paperperps/server/internal/accounts"
 	"github.com/juancruzfl/paperperps/server/internal/config"
 	"github.com/juancruzfl/paperperps/server/internal/db"
+	"github.com/juancruzfl/paperperps/server/internal/engine"
 	"github.com/juancruzfl/paperperps/server/internal/httpapi"
 	"github.com/juancruzfl/paperperps/server/internal/hub"
 	"github.com/juancruzfl/paperperps/server/internal/hyperliquid"
@@ -51,20 +57,34 @@ func run() error {
 	// Market data is read-only, so it runs on every instance, not only the engine leader.
 	info := hyperliquid.NewInfoClient(cfg.HLInfoURL())
 	var markets *market.Service
-	h := hub.New(func(topic string) (any, bool) { return markets.Snapshot(topic) })
+	h := hub.New(func(topic string) (any, bool) {
+		// Account topics have no snapshot (clients fetch /api/me); the websocket handler has
+		// already checked ownership.
+		if strings.HasPrefix(topic, "account:") {
+			return nil, true
+		}
+		return markets.Snapshot(topic)
+	})
 	markets = market.New(market.Options{Markets: cfg.Markets, Info: info, Publisher: h})
 	go markets.Run(ctx, cfg.HLWebsocketURL())
 
-	engine := &httpapi.EngineState{}
+	eng := engine.New(pool, markets, h, engine.Config{
+		TakerFeeRate:    cfg.TakerFeeRate,
+		MakerFeeRate:    cfg.MakerFeeRate,
+		MaxSlippage:     decimal.RequireFromString("0.05"),
+		MinNotional:     decimal.NewFromInt(10),
+		DefaultLeverage: 20,
+	})
 	srv := &http.Server{
 		Addr: net.JoinHostPort("", cfg.Port),
 		Handler: httpapi.New(httpapi.Deps{
-			Config:  cfg,
-			Pool:    pool,
-			Engine:  engine,
-			Market:  markets,
-			Candles: market.NewCandles(info, 10*time.Second),
-			Hub:     h,
+			Config:   cfg,
+			Pool:     pool,
+			Accounts: accounts.NewStore(pool, cfg.StartingBalance),
+			Engine:   eng,
+			Market:   markets,
+			Candles:  market.NewCandles(info, 10*time.Second),
+			Hub:      h,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -92,12 +112,28 @@ func run() error {
 			}
 			return
 		}
-		engine.SetLeader(true)
 		slog.Info("engine lock acquired")
-		// TODO(M2): start the trading engine here, stopping it before releasing the lock.
 
-		watchErr := lock.Watch(ctx, 5*time.Second)
-		engine.SetLeader(false)
+		// The engine runs only while we hold the lock, and must stop writing before the lock
+		// is released. Either one failing stops both.
+		engCtx, stopEngine := context.WithCancel(ctx)
+		var runErr error
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer stopEngine()
+			markets.SetObserver(eng)
+			defer markets.SetObserver(nil)
+			runErr = eng.Run(engCtx)
+		}()
+		watchErr := lock.Watch(engCtx, 5*time.Second)
+		stopEngine()
+		wg.Wait()
+		if watchErr == nil && runErr == nil && ctx.Err() == nil {
+			runErr = errors.New("engine stopped unexpectedly")
+		}
+
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := lock.Release(releaseCtx); err != nil {
@@ -105,8 +141,8 @@ func run() error {
 		} else {
 			slog.Info("engine lock released")
 		}
-		if watchErr != nil {
-			fatal <- watchErr
+		if err := errors.Join(watchErr, runErr); err != nil {
+			fatal <- err
 		}
 	}()
 

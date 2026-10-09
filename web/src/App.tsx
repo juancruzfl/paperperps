@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react'
+import { AccountMenu, RecoveryNotice } from './components/AccountMenu'
+import { AccountPanel } from './components/AccountPanel'
 import { Chart } from './components/Chart'
 import { MarketSelector } from './components/MarketSelector'
 import { OrderBook } from './components/OrderBook'
+import { OrderForm } from './components/OrderForm'
 import { StatsBar } from './components/StatsBar'
+import { Toasts } from './components/Toasts'
 import { Trades } from './components/Trades'
+import { bootAccount } from './lib/account'
 import { fetchStatus, useBook, useConnection, useTickers, useTrades } from './lib/market'
 import { DEFAULT_COIN, useCoin } from './lib/route'
 import type { Status } from './lib/types'
@@ -23,12 +28,19 @@ function App() {
     return () => controller.abort()
   }, [])
 
+  // A recovery link is /restore#<key>. Read the key, then drop it from the address bar.
+  useEffect(() => {
+    const secret = location.pathname === '/restore' ? decodeURIComponent(location.hash.slice(1)) : ''
+    if (secret) setCoin(DEFAULT_COIN, true)
+    bootAccount(secret || null)
+  }, [setCoin])
+
   // Send unknown markets to the default one, and / to its canonical /trade/<coin> URL.
   useEffect(() => {
     if (tickers.length > 0 && !ticker) {
       const fallback = tickers.some((t) => t.coin === DEFAULT_COIN) ? DEFAULT_COIN : tickers[0].coin
       setCoin(fallback, true)
-    } else if (location.pathname === '/') {
+    } else if (location.pathname === '/' || location.pathname === '/restore') {
       setCoin(coin, true)
     }
   }, [coin, ticker, tickers, setCoin])
@@ -44,10 +56,12 @@ function App() {
       <header className="header">
         <a className="logo" href="/">
           <img src="/favicon.svg" alt="" />
-          PaperPerps
+          <span className="logo-text">PaperPerps</span>
         </a>
         <MarketSelector coin={coin} tickers={tickers} onSelect={setCoin} />
+        <AccountMenu />
       </header>
+      <RecoveryNotice />
 
       <StatsBar ticker={ticker} />
 
@@ -63,29 +77,13 @@ function App() {
         <BookPanel coin={coin} szDecimals={ticker?.szDecimals ?? 2} />
 
         <section className="panel order-panel" aria-label="Place order">
-          <h2 className="panel-title">Trade</h2>
-          <div className="coming-soon">
-            <p>Order entry arrives in the next milestone.</p>
-            <p className="muted">
-              Every visitor will start with $
-              {Number(status?.startingBalance ?? 1000).toLocaleString('en-US')} of mock USD. No
-              login, no wallet.
-            </p>
-          </div>
+          <OrderForm key={coin} ticker={ticker} />
         </section>
 
-        <section className="panel account-panel" aria-label="Account">
-          <div className="tabs" role="tablist">
-            {['Positions', 'Open Orders', 'Trade History', 'Funding History'].map((t, i) => (
-              <button key={t} type="button" role="tab" aria-selected={i === 0} className={i === 0 ? 'active' : ''}>
-                {t}
-              </button>
-            ))}
-          </div>
-          <div className="panel-empty">No open positions yet.</div>
-        </section>
+        <AccountPanel onSelectCoin={setCoin} />
       </main>
 
+      <Toasts />
       <Footer status={status} />
     </div>
   )

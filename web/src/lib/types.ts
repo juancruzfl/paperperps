@@ -51,3 +51,85 @@ export type Status = {
   markets: string[]
   startingBalance: string
 }
+
+// --- accounts & trading ---
+
+export type Side = 'buy' | 'sell'
+export type OrderType = 'market' | 'limit'
+
+export type Position = {
+  coin: string
+  size: string // signed: negative is short
+  entryPx: string
+  leverage: number
+  marginMode: 'cross' | 'isolated'
+}
+
+export type Order = {
+  id: string
+  coin: string
+  side: Side
+  type: OrderType
+  px: string | null
+  sz: string
+  filledSz: string
+  tif: string | null
+  reduceOnly: boolean
+  status: 'open' | 'filled' | 'cancelled'
+  statusReason: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type Fill = {
+  id: string
+  orderId: string | null
+  coin: string
+  side: Side
+  px: string
+  sz: string
+  fee: string
+  liquidity: 'maker' | 'taker'
+  closedPnl: string
+  isLiquidation: boolean
+  createdAt: string
+}
+
+export type FundingPayment = {
+  coin: string
+  fundingHour: string
+  size: string
+  rate: string
+  oraclePx: string
+  amount: string
+}
+
+export type MarginSummary = {
+  balance: string
+  unrealizedPnl: string
+  accountValue: string
+  marginUsed: string
+  orderMargin: string
+  available: string
+}
+
+export type Me = {
+  accountId: string
+  handle: string
+  createdAt: string
+  runId: string
+  balance: string
+  positions: Position[]
+  openOrders: Order[]
+  summary: MarginSummary
+}
+
+export type CreatedAccount = { accountId: string; secret: string; handle: string }
+
+export type OrderResult = { order: Order; fill: Fill | null }
+
+export type AccountEvent = {
+  type: 'order' | 'fill' | 'leverage'
+  order?: Order
+  fill?: Fill
+}

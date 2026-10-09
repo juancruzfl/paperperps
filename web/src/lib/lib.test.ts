@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { computeDepth } from './book'
 import { applyTrade, toBar } from './candles'
-import { change24h, formatPct, fundingCountdown, pxDecimals } from './format'
+import { change24h, formatPct, formatUsd, fundingCountdown, pxDecimals } from './format'
 import type { Trade } from './types'
 
 describe('pxDecimals', () => {
@@ -26,6 +26,12 @@ describe('formatting', () => {
     expect(formatPct(0.0123)).toBe('+1.23%')
     expect(formatPct(-0.0005739396, 4)).toBe('-0.0574%')
     expect(formatPct(0)).toBe('0.00%')
+  })
+  it('formats dollars with the sign in front', () => {
+    expect(formatUsd(1234.567)).toBe('$1,234.57')
+    expect(formatUsd(-10)).toBe('-$10.00')
+    expect(formatUsd(10, { signed: true })).toBe('+$10.00')
+    expect(formatUsd(-0.002, { signed: true })).toBe('$0.00')
   })
   it('computes 24h change', () => {
     const { abs, ratio } = change24h('82137', '82564')

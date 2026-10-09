@@ -18,6 +18,8 @@ server/   Go backend: API, websocket, trading engine; serves the built frontend
   internal/hyperliquid/  read-only Hyperliquid info + websocket client
   internal/market/       live market state (books, trades, tickers), candle cache
   internal/hub/          topic fan-out to browser websockets
+  internal/accounts/     anonymous accounts, secret auth, account/history reads
+  internal/engine/       order execution, cross margin, fills and ledger (leader only)
   internal/httpapi/      HTTP routes, /ws, health check, SPA serving
 web/      React + TypeScript + Vite frontend
 docs/     plan and deploy docs

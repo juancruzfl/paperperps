@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -42,6 +43,13 @@ type Info interface {
 // Publisher delivers updates to subscribers of a topic.
 type Publisher interface {
 	Publish(topic string, data any)
+}
+
+// Observer is told about market changes, e.g. so the engine can fill resting orders. Calls
+// are made from the feed goroutine and must not block.
+type Observer interface {
+	BookChanged(coin string)
+	NewTrades(coin string, trades []hyperliquid.Trade)
 }
 
 // Ticker is a market's summary row: what the market list and stats bar show.
@@ -93,6 +101,8 @@ type Service struct {
 	pub        Publisher
 	staleAfter time.Duration
 	now        func() time.Time
+
+	observer atomic.Pointer[Observer]
 
 	mu        sync.RWMutex
 	connected bool
@@ -212,6 +222,43 @@ func (s *Service) subscriptions() []hyperliquid.Subscription {
 	return subs
 }
 
+// SetObserver registers o for market changes; nil removes it.
+func (s *Service) SetObserver(o Observer) {
+	if o == nil {
+		s.observer.Store(nil)
+		return
+	}
+	s.observer.Store(&o)
+}
+
+func (s *Service) notify(fn func(Observer)) {
+	if o := s.observer.Load(); o != nil {
+		fn(*o)
+	}
+}
+
+// Ticker returns one market's summary.
+func (s *Service) Ticker(coin string) (Ticker, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st, ok := s.states[coin]
+	if !ok || !st.hasMeta {
+		return Ticker{}, false
+	}
+	return s.ticker(coin, st, s.now()), true
+}
+
+// Book returns a market's latest order book.
+func (s *Service) Book(coin string) (Book, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st, ok := s.states[coin]
+	if !ok || st.book == nil {
+		return Book{}, false
+	}
+	return *st.book, true
+}
+
 // Has reports whether coin is an enabled market.
 func (s *Service) Has(coin string) bool {
 	s.mu.RLock()
@@ -231,21 +278,26 @@ func (s *Service) Tickers() []Ticker {
 		if !st.hasMeta {
 			continue
 		}
-		out = append(out, Ticker{
-			Coin:         coin,
-			SzDecimals:   st.meta.SzDecimals,
-			MaxLeverage:  st.meta.MaxLeverage,
-			MarkPx:       st.ctx.MarkPx,
-			MidPx:        st.ctx.MidPx,
-			OraclePx:     st.ctx.OraclePx,
-			PrevDayPx:    st.ctx.PrevDayPx,
-			DayNtlVlm:    st.ctx.DayNtlVlm,
-			Funding:      st.ctx.Funding,
-			OpenInterest: st.ctx.OpenInterest,
-			Stale:        !s.connected || now.Sub(st.ctxAt) > s.staleAfter,
-		})
+		out = append(out, s.ticker(coin, st, now))
 	}
 	return out
+}
+
+// ticker must be called with s.mu held.
+func (s *Service) ticker(coin string, st *state, now time.Time) Ticker {
+	return Ticker{
+		Coin:         coin,
+		SzDecimals:   st.meta.SzDecimals,
+		MaxLeverage:  st.meta.MaxLeverage,
+		MarkPx:       st.ctx.MarkPx,
+		MidPx:        st.ctx.MidPx,
+		OraclePx:     st.ctx.OraclePx,
+		PrevDayPx:    st.ctx.PrevDayPx,
+		DayNtlVlm:    st.ctx.DayNtlVlm,
+		Funding:      st.ctx.Funding,
+		OpenInterest: st.ctx.OpenInterest,
+		Stale:        !s.connected || now.Sub(st.ctxAt) > s.staleAfter,
+	}
 }
 
 // Snapshot returns the current state of a topic, for clients that just subscribed.
@@ -299,6 +351,7 @@ func (s *Service) OnBook(b hyperliquid.L2Book) {
 	s.mu.Unlock()
 	if ok {
 		s.pub.Publish(BookTopic(b.Coin), book)
+		s.notify(func(o Observer) { o.BookChanged(b.Coin) })
 	}
 }
 
@@ -340,6 +393,7 @@ func (s *Service) OnTrades(trades []hyperliquid.Trade) {
 
 	if len(fresh) > 0 {
 		s.pub.Publish(TradesTopic(coin), fresh)
+		s.notify(func(o Observer) { o.NewTrades(coin, fresh) })
 	}
 }
 

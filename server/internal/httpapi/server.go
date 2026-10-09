@@ -7,39 +7,26 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/juancruzfl/paperperps/server/internal/accounts"
 	"github.com/juancruzfl/paperperps/server/internal/config"
+	"github.com/juancruzfl/paperperps/server/internal/engine"
 	"github.com/juancruzfl/paperperps/server/internal/hub"
 	"github.com/juancruzfl/paperperps/server/internal/market"
 )
 
-// EngineState reports whether this process holds the engine lock.
-type EngineState struct {
-	leader atomic.Bool
-}
-
-func (s *EngineState) SetLeader(v bool) { s.leader.Store(v) }
-func (s *EngineState) IsLeader() bool   { return s.leader.Load() }
-
-func (s *EngineState) String() string {
-	if s.IsLeader() {
-		return "leader"
-	}
-	return "standby"
-}
-
 // Deps are the services the HTTP layer serves.
 type Deps struct {
-	Config  config.Config
-	Pool    *pgxpool.Pool
-	Engine  *EngineState
-	Market  *market.Service
-	Candles *market.Candles
-	Hub     *hub.Hub
+	Config   config.Config
+	Pool     *pgxpool.Pool
+	Accounts *accounts.Store
+	Engine   *engine.Engine
+	Market   *market.Service
+	Candles  *market.Candles
+	Hub      *hub.Hub
 }
 
 // New builds the HTTP handler.
@@ -65,9 +52,13 @@ func New(d Deps) http.Handler {
 		for _, t := range d.Market.Tickers() {
 			markets = append(markets, t.Coin)
 		}
+		engineState := "standby"
+		if d.Engine.Running() {
+			engineState = "leader"
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"version":         cfg.Version,
-			"engine":          d.Engine.String(),
+			"engine":          engineState,
 			"network":         cfg.HLNetwork,
 			"markets":         markets,
 			"startingBalance": cfg.StartingBalance.String(),
@@ -76,7 +67,17 @@ func New(d Deps) http.Handler {
 
 	mux.HandleFunc("GET /api/markets", handleMarkets(d.Market))
 	mux.HandleFunc("GET /api/markets/{coin}/candles", handleCandles(d.Market, d.Candles))
-	mux.HandleFunc("GET /ws", handleWS(d.Hub))
+	mux.HandleFunc("GET /ws", handleWS(d.Hub, d.Accounts.Authenticate))
+
+	auth := func(h http.HandlerFunc) http.HandlerFunc { return requireAccount(d.Accounts, h) }
+	mux.HandleFunc("POST /api/accounts", handleCreateAccount(d.Accounts))
+	mux.HandleFunc("GET /api/me", auth(handleMe(d.Accounts, d.Market)))
+	mux.HandleFunc("GET /api/me/orders", auth(handleHistory("order history", d.Accounts.OrderHistory)))
+	mux.HandleFunc("GET /api/me/fills", auth(handleHistory("fills", d.Accounts.Fills)))
+	mux.HandleFunc("GET /api/me/funding", auth(handleHistory("funding", d.Accounts.Funding)))
+	mux.HandleFunc("PUT /api/me/leverage/{coin}", auth(handleSetLeverage(d.Engine)))
+	mux.HandleFunc("POST /api/orders", auth(handlePlaceOrder(d.Engine)))
+	mux.HandleFunc("DELETE /api/orders/{id}", auth(handleCancelOrder(d.Engine)))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not_found"})
