@@ -80,6 +80,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/me/isolated-margin/{coin}", auth(handleAdjustIsolatedMargin(d.Engine)))
 	mux.HandleFunc("POST /api/orders", auth(handlePlaceOrder(d.Engine)))
 	mux.HandleFunc("DELETE /api/orders/{id}", auth(handleCancelOrder(d.Engine)))
+	mux.HandleFunc("POST /api/orders/{id}/modify", auth(handleModifyOrder(d.Engine)))
+	mux.HandleFunc("PUT /api/me/tpsl/{coin}", auth(handleSetPositionTPSL(d.Engine)))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not_found"})

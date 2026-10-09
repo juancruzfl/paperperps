@@ -2,7 +2,7 @@
 // available margin and liquidation prices live as marks move. The server stays
 // authoritative; margin.test.ts uses the same cases as the Go tests.
 
-import type { Me, Ticker } from './types'
+import type { Me, Order, Ticker } from './types'
 
 export type RestingOrder = { buy: boolean; remaining: number; px: number }
 
@@ -155,6 +155,12 @@ export function projectedLiquidationPrice(
   return liquidationPrice(c, summarize(balance - fee, states))
 }
 
+/** Only limits on the book that can grow a position hold margin (mirrors reservesMargin). */
+export function reservesMargin(o: Order): boolean {
+  const onBook = o.status === 'triggered' || (o.status === 'open' && o.type === 'limit')
+  return onBook && !o.reduceOnly
+}
+
 /** Builds margin inputs from the account and live marks. */
 export function coinStates(me: Me, tickers: Ticker[]): CoinState[] {
   const byCoin = new Map(tickers.map((t) => [t.coin, t]))
@@ -176,6 +182,7 @@ export function coinStates(me: Me, tickers: Ticker[]): CoinState[] {
     c.isolatedMargin = Number(p.isolatedMargin)
   }
   for (const o of me.openOrders) {
+    if (!reservesMargin(o)) continue
     get(o.coin).orders.push({
       buy: o.side === 'buy',
       remaining: Number(o.sz) - Number(o.filledSz),

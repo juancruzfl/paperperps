@@ -1,6 +1,19 @@
 // REST client. Authenticated calls send the account secret as a bearer token.
 
-import type { CreatedAccount, Fill, FundingPayment, Me, Order, OrderResult, OrderType, Side } from './types'
+import type { CreatedAccount, Fill, FundingPayment, Me, Order, OrderResult, OrderType, Side, TIF } from './types'
+
+export type NewOrder = {
+  coin: string
+  side: Side
+  type: OrderType
+  sz: string
+  px?: string
+  triggerPx?: string
+  tif?: TIF
+  reduceOnly?: boolean
+  takeProfit?: string
+  stopLoss?: string
+}
 
 export class ApiError extends Error {
   readonly status: number
@@ -32,10 +45,20 @@ export const api = {
   fills: (secret: string) => request<Fill[]>('/api/me/fills', { secret }),
   orderHistory: (secret: string) => request<Order[]>('/api/me/orders', { secret }),
   funding: (secret: string) => request<FundingPayment[]>('/api/me/funding', { secret }),
-  placeOrder: (
-    secret: string,
-    order: { coin: string; side: Side; type: OrderType; sz: string; px?: string },
-  ) => request<OrderResult>('/api/orders', { method: 'POST', secret, body: JSON.stringify(order) }),
+  placeOrder: (secret: string, order: NewOrder) =>
+    request<OrderResult>('/api/orders', { method: 'POST', secret, body: JSON.stringify(order) }),
+  modifyOrder: (secret: string, id: string, changes: { sz?: string; px?: string; triggerPx?: string }) =>
+    request<Order>(`/api/orders/${encodeURIComponent(id)}/modify`, {
+      method: 'POST',
+      secret,
+      body: JSON.stringify(changes),
+    }),
+  setPositionTPSL: (secret: string, coin: string, tpsl: { takeProfit?: string; stopLoss?: string }) =>
+    request<Order[]>(`/api/me/tpsl/${encodeURIComponent(coin)}`, {
+      method: 'PUT',
+      secret,
+      body: JSON.stringify(tpsl),
+    }),
   cancelOrder: (secret: string, id: string) =>
     request<void>(`/api/orders/${encodeURIComponent(id)}`, { method: 'DELETE', secret }),
   setMarginMode: (secret: string, coin: string, mode: 'cross' | 'isolated') =>

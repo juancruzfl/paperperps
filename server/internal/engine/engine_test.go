@@ -161,8 +161,7 @@ func (h *harness) setClock(t time.Time) { h.clock.Store(&t) }
 func (h *harness) runRisk() {
 	h.t.Helper()
 	err := h.eng.do(context.Background(), func(ctx context.Context) error {
-		h.eng.checkRisk(ctx)
-		h.eng.settleFunding(ctx)
+		h.eng.riskTick(ctx)
 		return nil
 	})
 	if err != nil {

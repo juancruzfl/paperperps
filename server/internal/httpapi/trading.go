@@ -219,3 +219,49 @@ func handleAdjustIsolatedMargin(eng *engine.Engine) http.HandlerFunc {
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
+
+func handleModifyOrder(eng *engine.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		orderID, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			writeError(w, http.StatusNotFound, "not_found", "no open order with that id")
+			return
+		}
+		var req engine.ModifyRequest
+		if !decodeBody(w, r, &req) {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), engineTimeout)
+		defer cancel()
+		o, err := eng.ModifyOrder(ctx, accountID(r), orderID, req)
+		if err != nil {
+			engineError(w, "modify order", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, o)
+	}
+}
+
+// handleSetPositionTPSL replaces the open position's TP/SL: {takeProfit?, stopLoss?}.
+func handleSetPositionTPSL(eng *engine.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			TakeProfit decimal.NullDecimal `json:"takeProfit"`
+			StopLoss   decimal.NullDecimal `json:"stopLoss"`
+		}
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), engineTimeout)
+		defer cancel()
+		orders, err := eng.SetPositionTPSL(ctx, accountID(r), r.PathValue("coin"), body.TakeProfit, body.StopLoss)
+		if err != nil {
+			engineError(w, "set position tp/sl", err)
+			return
+		}
+		if orders == nil {
+			orders = []accounts.Order{}
+		}
+		writeJSON(w, http.StatusOK, orders)
+	}
+}

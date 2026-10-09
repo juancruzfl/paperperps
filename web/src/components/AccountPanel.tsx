@@ -4,6 +4,9 @@ import { describeFill, loadHistory, refreshAccount, useAccount } from '../lib/ac
 import { formatNumber, formatPct, formatUsd, pxDecimals } from '../lib/format'
 import { coinStates, liquidationPrice, positionMargin, summarize, unrealizedPnl } from '../lib/margin'
 import { IsolatedMarginControl } from './MarginControls'
+import { ModifyOrderControl, PositionTPSLControl } from './OrderDialogs'
+import { isTrigger, orderTags, triggerDirection, typeLabel } from '../lib/orders'
+import type { Order } from '../lib/types'
 import { useTickers } from '../lib/market'
 import { toast } from '../lib/toasts'
 import type { Ticker } from '../lib/types'
@@ -98,6 +101,7 @@ function Positions({ onSelectCoin }: { onSelectCoin: (coin: string) => void }) {
           <th className="num">PnL (ROE)</th>
           <th className="num">Liq. price</th>
           <th className="num">Margin</th>
+          <th className="num">TP / SL</th>
           <th className="num">Close</th>
         </tr>
       </thead>
@@ -107,6 +111,7 @@ function Positions({ onSelectCoin }: { onSelectCoin: (coin: string) => void }) {
           const pnl = unrealizedPnl(c)
           const margin = c.isolated ? c.isolatedMargin : positionMargin(c)
           const liq = liquidationPrice(c, summary)
+          const { tp, sl } = positionTPSL(me.openOrders, c.coin)
           return (
             <tr key={c.coin}>
               <td>
@@ -130,6 +135,9 @@ function Positions({ onSelectCoin }: { onSelectCoin: (coin: string) => void }) {
                 {c.isolated && <IsolatedMarginControl coin={c.coin} margin={c.isolatedMargin} available={summary.available} />}
               </td>
               <td className="num">
+                <PositionTPSLControl coin={c.coin} size={c.size} entryPx={c.entryPx} takeProfit={tp} stopLoss={sl} />
+              </td>
+              <td className="num">
                 <button type="button" className="small-btn" disabled={closing === c.coin} onClick={() => void close(c.coin, c.size, dec.sz)}>
                   {closing === c.coin ? 'Closing…' : 'Market'}
                 </button>
@@ -140,6 +148,20 @@ function Positions({ onSelectCoin }: { onSelectCoin: (coin: string) => void }) {
       </tbody>
     </table>
   )
+}
+
+/** The live take-profit and stop-loss triggers protecting a position. */
+function positionTPSL(orders: Order[], coin: string): { tp: number | null; sl: number | null } {
+  const pending = new Set(orders.map((o) => o.id))
+  let tp: number | null = null
+  let sl: number | null = null
+  for (const o of orders) {
+    const waitingOnEntry = o.parentOrderId !== null && pending.has(o.parentOrderId)
+    if (o.coin !== coin || !o.reduceOnly || o.status !== 'open' || !isTrigger(o.type) || waitingOnEntry) continue
+    if (o.type.startsWith('take_profit')) tp = Number(o.triggerPx)
+    else sl = Number(o.triggerPx)
+  }
+  return { tp, sl }
 }
 
 function OpenOrders() {
@@ -165,27 +187,42 @@ function OpenOrders() {
         <tr>
           <th>Time</th>
           <th>Coin</th>
-          <th>Side</th>
+          <th>Type</th>
           <th className="num">Price</th>
+          <th className="num">Trigger</th>
           <th className="num">Size</th>
           <th className="num">Filled</th>
-          <th className="num">Value</th>
-          <th className="num">Cancel</th>
+          <th className="num">Actions</th>
         </tr>
       </thead>
       <tbody>
         {[...me.openOrders].reverse().map((o) => {
-          const dec = decimalsFor(tickers, o.coin, Number(o.px))
+          const dec = decimalsFor(tickers, o.coin, Number(o.px ?? o.triggerPx ?? 0))
+          const waiting = o.parentOrderId !== null && me.openOrders.some((p) => p.id === o.parentOrderId)
           return (
             <tr key={o.id}>
               <td className="muted">{when(o.createdAt)}</td>
               <td>{o.coin}</td>
-              <td className={o.side === 'buy' ? 'up' : 'down'}>Limit {o.side === 'buy' ? 'buy' : 'sell'}</td>
-              <td className="num">{formatNumber(o.px ?? 0, dec.px)}</td>
+              <td className={o.side === 'buy' ? 'up' : 'down'}>
+                {typeLabel(o.type)} {o.side}
+                {orderTags(o).map((t) => (
+                  <span key={t} className="tag">
+                    {t}
+                  </span>
+                ))}
+              </td>
+              <td className="num">{o.px ? formatNumber(o.px, dec.px) : 'Market'}</td>
+              <td className="num">
+                {o.status === 'triggered'
+                  ? 'Triggered'
+                  : o.triggerPx
+                    ? `${waiting ? 'After entry · ' : ''}Mark ${triggerDirection(o.type, o.side)} ${formatNumber(o.triggerPx, dec.px)}`
+                    : '—'}
+              </td>
               <td className="num">{formatNumber(o.sz, dec.sz)}</td>
               <td className="num">{formatNumber(o.filledSz, dec.sz)}</td>
-              <td className="num">{usd((Number(o.sz) - Number(o.filledSz)) * Number(o.px))}</td>
-              <td className="num">
+              <td className="num actions">
+                <ModifyOrderControl order={o} />
                 <button type="button" className="small-btn" onClick={() => void cancel(o.id)}>
                   Cancel
                 </button>
@@ -280,7 +317,7 @@ function OrderHistory() {
               <td className="muted">{when(o.updatedAt)}</td>
               <td>{o.coin}</td>
               <td className={o.side === 'buy' ? 'up' : 'down'}>
-                {o.type === 'market' ? 'Market' : 'Limit'} {o.side}
+                {typeLabel(o.type)} {o.side}
               </td>
               <td className="num">{o.px ? formatNumber(o.px, dec.px) : 'Market'}</td>
               <td className="num">{formatNumber(o.sz, dec.sz)}</td>

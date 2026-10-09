@@ -152,8 +152,10 @@ Built (M1–M2):
 | PUT | `/api/me/leverage/{coin}` | Set leverage `{leverage}` |
 | PUT | `/api/me/margin-mode/{coin}` | `{mode: cross\|isolated}`; only with no position or orders on the coin |
 | POST | `/api/me/isolated-margin/{coin}` | `{amount}`: positive adds, negative removes |
-| POST | `/api/orders` | Place a market or limit (GTC) order: `{coin, side, type, sz, px?}` |
-| DELETE | `/api/orders/{id}` | Cancel an open order |
+| POST | `/api/orders` | Place an order: `{coin, side, type, sz, px?, triggerPx?, tif?, reduceOnly?, takeProfit?, stopLoss?}` |
+| DELETE | `/api/orders/{id}` | Cancel an open order (and an unfilled entry's attached TP/SL) |
+| POST | `/api/orders/{id}/modify` | `{sz?, px?, triggerPx?}`, changed in place |
+| PUT | `/api/me/tpsl/{coin}` | `{takeProfit?, stopLoss?}` replaces the position's TP/SL |
 | GET | `/api/markets` | Tickers for the enabled markets |
 | GET | `/api/markets/{coin}/candles?interval=` | Last 500 bars, cached 10s |
 | GET | `/api/status` | Version, engine leader/standby, network, markets |
@@ -168,7 +170,6 @@ Planned:
 |---|---|---|---|
 | PATCH | `/api/me` | Set handle, leaderboard opt-in | M5 |
 | POST | `/api/me/reset` | Reset to $1,000 (cooldown enforced) | M5 |
-| POST | `/api/orders/{id}/modify` | Modify price/size | M4 |
 | GET | `/api/leaderboard?window=` | Rankings | M5 |
 
 Auth: `Authorization: Bearer <secret>`. Only `sha256(secret)` is stored. Errors are
@@ -528,6 +529,39 @@ controls arrived in M2.
 **M4 — Advanced orders**
 IOC, post-only, reduce-only, stop/TP/SL (market and limit), position-linked TP/SL, modify
 order.
+*Status (2026-10-09): done. Semantics as built:*
+- **Order types:** `market`, `limit` (TIF `gtc`, `ioc`, or `alo` = post-only), and
+  `stop_market`, `stop_limit`, `take_profit_market`, `take_profit_limit`.
+- **Triggers** use the mark price. Stops fire when price moves against the side they
+  protect: a stop sell fires when the mark ≤ trigger, a stop buy when the mark ≥ trigger.
+  Take-profits fire the other way.
+  - A trigger that the mark has already reached is rejected at placement.
+  - Market-type triggers execute IOC within 5% of mid. Limit-type triggers take what they
+    can, then rest with status `triggered`.
+  - Triggers are checked every risk tick, before liquidations, so a stop-loss gets its
+    chance first.
+  - Untriggered orders hold no margin; margin is checked when they fire.
+- **Reduce-only** needs an opposite position when placed. It is clamped to the position at
+  every fill, so it can never flip a position, and it holds no margin. It may be under the
+  $10 minimum, so dust can always be closed. Reduce-only orders that can no longer do
+  anything are cancelled when the position goes flat.
+- **IOC** with no fill is rejected; any unfilled remainder is cancelled. **Post-only**
+  that would cross is rejected.
+- **Attached TP/SL** (`takeProfit`/`stopLoss` on a market or limit entry) become
+  reduce-only trigger-market children with `parent_order_id` and a shared `oco_group`.
+  - They stay inactive while the entry is still open.
+  - Cancelling an unfilled entry cancels them.
+  - Filling one cancels the other.
+  - TP must be on the profitable side of the entry price, SL on the losing side.
+- **Position TP/SL** (`PUT /api/me/tpsl/{coin}`) replaces every active TP/SL on the
+  position, including attached ones whose entry already filled, with orders sized to the
+  whole position.
+- **Modify** changes size, limit price or trigger in place, keeping the order ID. A
+  resting limit modified to a price that would cross is rejected; cancel and re-place
+  instead. Margin is re-checked.
+- Tests: `server/internal/engine/advanced_test.go`. A headless-Chrome run on mainnet data
+  covered the attached TP/SL, stop entry plus modify, TP/SL replace, post-only, and the
+  cleanup on close. It found and fixed the TP/SL replace bug.
 
 **M5 — Social & polish**
 Equity snapshots, PnL chart, leaderboard + handles, account reset + cooldown, abuse rate

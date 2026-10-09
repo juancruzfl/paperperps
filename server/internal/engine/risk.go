@@ -19,7 +19,17 @@ import (
 // accountIDs returns the loaded accounts in a stable order, so risk and funding runs are
 // deterministic.
 func (e *Engine) accountIDs() []uuid.UUID {
-	return slices.SortedFunc(maps.Keys(e.accounts), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+	return slices.SortedFunc(maps.Keys(e.accounts), compareIDs)
+}
+
+func compareIDs(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }
+
+// riskTick runs the once-a-second checks, in order: fire trigger orders (a stop-loss
+// should get its chance before a liquidation), liquidate, then settle funding.
+func (e *Engine) riskTick(ctx context.Context) {
+	e.checkTriggers(ctx)
+	e.checkRisk(ctx)
+	e.settleFunding(ctx)
 }
 
 // --- liquidation ---

@@ -55,7 +55,15 @@ export type Status = {
 // --- accounts & trading ---
 
 export type Side = 'buy' | 'sell'
-export type OrderType = 'market' | 'limit'
+export type OrderType =
+  | 'market'
+  | 'limit'
+  | 'stop_market'
+  | 'stop_limit'
+  | 'take_profit_market'
+  | 'take_profit_limit'
+
+export type TIF = 'gtc' | 'ioc' | 'alo'
 
 export type Position = {
   coin: string
@@ -72,11 +80,14 @@ export type Order = {
   side: Side
   type: OrderType
   px: string | null
+  triggerPx: string | null
   sz: string
   filledSz: string
-  tif: string | null
+  tif: TIF | null
   reduceOnly: boolean
-  status: 'open' | 'filled' | 'cancelled'
+  parentOrderId: string | null
+  ocoGroup: string | null
+  status: 'open' | 'triggered' | 'filled' | 'cancelled'
   statusReason: string | null
   createdAt: string
   updatedAt: string
@@ -130,7 +141,7 @@ export type Me = {
 
 export type CreatedAccount = { accountId: string; secret: string; handle: string }
 
-export type OrderResult = { order: Order; fill: Fill | null }
+export type OrderResult = { order: Order; fill: Fill | null; children?: Order[] }
 
 export type LiquidationInfo = {
   coins: string[]

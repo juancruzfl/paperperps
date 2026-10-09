@@ -122,19 +122,24 @@ type Position struct {
 }
 
 type Order struct {
-	ID           uuid.UUID           `json:"id"`
-	Coin         string              `json:"coin"`
-	Side         string              `json:"side"`
-	Type         string              `json:"type"`
-	Px           decimal.NullDecimal `json:"px"`
-	Sz           decimal.Decimal     `json:"sz"`
-	FilledSz     decimal.Decimal     `json:"filledSz"`
-	TIF          *string             `json:"tif"`
-	ReduceOnly   bool                `json:"reduceOnly"`
-	Status       string              `json:"status"`
-	StatusReason *string             `json:"statusReason"`
-	CreatedAt    time.Time           `json:"createdAt"`
-	UpdatedAt    time.Time           `json:"updatedAt"`
+	ID         uuid.UUID           `json:"id"`
+	Coin       string              `json:"coin"`
+	Side       string              `json:"side"`
+	Type       string              `json:"type"`
+	Px         decimal.NullDecimal `json:"px"`
+	TriggerPx  decimal.NullDecimal `json:"triggerPx"`
+	Sz         decimal.Decimal     `json:"sz"`
+	FilledSz   decimal.Decimal     `json:"filledSz"`
+	TIF        *string             `json:"tif"`
+	ReduceOnly bool                `json:"reduceOnly"`
+	// ParentOrderID links a TP/SL to the entry order it was attached to; it only activates
+	// once the parent has filled. Orders sharing an OcoGroup cancel each other.
+	ParentOrderID *uuid.UUID `json:"parentOrderId"`
+	OcoGroup      *uuid.UUID `json:"ocoGroup"`
+	Status        string     `json:"status"`
+	StatusReason  *string    `json:"statusReason"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
 }
 
 type Fill struct {
@@ -171,12 +176,13 @@ type Account struct {
 	OpenOrders []Order         `json:"openOrders"`
 }
 
-const orderColumns = `id, coin, side, type, px, sz, filled_sz, tif, reduce_only, status, status_reason, created_at, updated_at`
+const orderColumns = `id, coin, side, type, px, trigger_px, sz, filled_sz, tif, reduce_only, parent_order_id, oco_group,
+	status, status_reason, created_at, updated_at`
 
 func scanOrder(row pgx.Row) (Order, error) {
 	var o Order
-	err := row.Scan(&o.ID, &o.Coin, &o.Side, &o.Type, &o.Px, &o.Sz, &o.FilledSz, &o.TIF,
-		&o.ReduceOnly, &o.Status, &o.StatusReason, &o.CreatedAt, &o.UpdatedAt)
+	err := row.Scan(&o.ID, &o.Coin, &o.Side, &o.Type, &o.Px, &o.TriggerPx, &o.Sz, &o.FilledSz, &o.TIF,
+		&o.ReduceOnly, &o.ParentOrderID, &o.OcoGroup, &o.Status, &o.StatusReason, &o.CreatedAt, &o.UpdatedAt)
 	return o, err
 }
 
@@ -210,7 +216,7 @@ func Load(ctx context.Context, q Querier, id uuid.UUID) (Account, error) {
 	}
 
 	rows, err = q.Query(ctx, `SELECT `+orderColumns+` FROM orders
-		WHERE account_id = $1 AND status = 'open' ORDER BY created_at`, id)
+		WHERE account_id = $1 AND status IN ('open', 'triggered') ORDER BY created_at`, id)
 	if err != nil {
 		return Account{}, fmt.Errorf("load orders: %w", err)
 	}
@@ -228,7 +234,7 @@ func (s *Store) Load(ctx context.Context, id uuid.UUID) (Account, error) {
 // OrderHistory returns the account's most recent closed (filled or cancelled) orders.
 func (s *Store) OrderHistory(ctx context.Context, id uuid.UUID, limit int) ([]Order, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+orderColumns+` FROM orders
-		WHERE account_id = $1 AND status <> 'open' ORDER BY updated_at DESC LIMIT $2`, id, limit)
+		WHERE account_id = $1 AND status IN ('filled', 'cancelled') ORDER BY updated_at DESC LIMIT $2`, id, limit)
 	if err != nil {
 		return nil, err
 	}

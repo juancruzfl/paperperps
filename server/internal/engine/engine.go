@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"sync/atomic"
 	"time"
 
@@ -64,10 +63,19 @@ const (
 	SideBuy  = "buy"
 	SideSell = "sell"
 
-	TypeMarket = "market"
-	TypeLimit  = "limit"
+	TypeMarket     = "market"
+	TypeLimit      = "limit"
+	TypeStopMarket = "stop_market"
+	TypeStopLimit  = "stop_limit"
+	TypeTakeMarket = "take_profit_market"
+	TypeTakeLimit  = "take_profit_limit"
 
-	StatusOpen      = "open"
+	TIFGTC = "gtc" // rest until filled or cancelled
+	TIFIOC = "ioc" // fill what's possible now, cancel the rest
+	TIFALO = "alo" // post-only: rejected if it would fill immediately
+
+	StatusOpen      = "open"      // resting limit, or a trigger order waiting for its price
+	StatusTriggered = "triggered" // a limit-type trigger order that fired and now rests
 	StatusFilled    = "filled"
 	StatusCancelled = "cancelled"
 )
@@ -85,21 +93,6 @@ func (e *RejectError) Error() string { return e.Code + ": " + e.Message }
 
 func reject(code, format string, args ...any) *RejectError {
 	return &RejectError{Code: code, Message: fmt.Sprintf(format, args...)}
-}
-
-// OrderRequest is a new order from a client.
-type OrderRequest struct {
-	Coin string              `json:"coin"`
-	Side string              `json:"side"` // buy | sell
-	Type string              `json:"type"` // market | limit
-	Sz   decimal.Decimal     `json:"sz"`
-	Px   decimal.NullDecimal `json:"px"` // limit orders only
-}
-
-// OrderResult is the order as placed and the fill it got immediately, if any.
-type OrderResult struct {
-	Order accounts.Order `json:"order"`
-	Fill  *accounts.Fill `json:"fill"`
 }
 
 // AccountEvent is published on AccountTopic when an account's orders or fills change.
@@ -165,7 +158,8 @@ type Engine struct {
 	dropped atomic.Int64
 
 	accounts map[uuid.UUID]*account
-	resting  map[string]map[uuid.UUID]*accounts.Order // coin → open limit orders
+	resting  map[string]map[uuid.UUID]*accounts.Order // coin → limit orders on the book
+	triggers map[string]map[uuid.UUID]*accounts.Order // coin → trigger orders not yet fired
 	owners   map[uuid.UUID]*account                   // open order id → its account
 
 	lastFunding time.Time // the last funding hour settled
@@ -201,12 +195,13 @@ func (e *Engine) Running() bool { return e.running.Load() }
 func (e *Engine) Run(ctx context.Context) error {
 	e.accounts = map[uuid.UUID]*account{}
 	e.resting = map[string]map[uuid.UUID]*accounts.Order{}
+	e.triggers = map[string]map[uuid.UUID]*accounts.Order{}
 	e.owners = map[uuid.UUID]*account{}
 
 	// Every account with an open order or position must be in memory: resting orders fill,
 	// positions get liquidated and pay funding.
 	rows, err := e.pool.Query(ctx, `
-		SELECT account_id FROM orders WHERE status = 'open'
+		SELECT account_id FROM orders WHERE status IN ('open', 'triggered')
 		UNION SELECT account_id FROM positions WHERE size <> 0`)
 	if err != nil {
 		return fmt.Errorf("load active accounts: %w", err)
@@ -239,8 +234,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		case ev := <-e.events:
 			e.handleEvent(ctx, ev)
 		case <-risk.C:
-			e.checkRisk(ctx)
-			e.settleFunding(ctx)
+			e.riskTick(ctx)
 		}
 	}
 }
@@ -289,187 +283,9 @@ func (e *Engine) enqueue(ev event) {
 
 // --- commands ---
 
-// PlaceOrder validates, executes and records a new order.
-func (e *Engine) PlaceOrder(ctx context.Context, accountID uuid.UUID, req OrderRequest) (OrderResult, error) {
-	var res OrderResult
-	err := e.do(ctx, func(ctx context.Context) error {
-		var err error
-		res, err = e.placeOrder(ctx, accountID, req)
-		return err
-	})
-	return res, err
-}
-
-// CancelOrder cancels one of the account's open orders.
-func (e *Engine) CancelOrder(ctx context.Context, accountID, orderID uuid.UUID) error {
-	return e.do(ctx, func(ctx context.Context) error { return e.cancelOrder(ctx, accountID, orderID) })
-}
-
 // SetLeverage changes the account's leverage on coin.
 func (e *Engine) SetLeverage(ctx context.Context, accountID uuid.UUID, coin string, leverage int) error {
 	return e.do(ctx, func(ctx context.Context) error { return e.setLeverage(ctx, accountID, coin, leverage) })
-}
-
-func (e *Engine) placeOrder(ctx context.Context, accountID uuid.UUID, req OrderRequest) (OrderResult, error) {
-	if req.Side != SideBuy && req.Side != SideSell {
-		return OrderResult{}, reject("invalid_side", "side must be buy or sell")
-	}
-	if req.Type != TypeMarket && req.Type != TypeLimit {
-		return OrderResult{}, reject("invalid_type", "type must be market or limit")
-	}
-	ticker, ok := e.md.Ticker(req.Coin)
-	if !ok {
-		return OrderResult{}, reject("unknown_market", "%s is not a listed market", req.Coin)
-	}
-	book, hasBook := e.md.Book(req.Coin)
-	if ticker.Stale || !hasBook {
-		return OrderResult{}, reject("market_stale", "%s market data is not live right now; try again shortly", req.Coin)
-	}
-	if err := ValidateSize(req.Sz, ticker.SzDecimals); err != nil {
-		return OrderResult{}, reject("invalid_size", "size %s", err)
-	}
-	if req.Type == TypeLimit {
-		if !req.Px.Valid {
-			return OrderResult{}, reject("invalid_price", "limit orders need a price")
-		}
-		if err := ValidatePrice(req.Px.Decimal, ticker.SzDecimals); err != nil {
-			return OrderResult{}, reject("invalid_price", "price %s", err)
-		}
-	}
-
-	a, err := e.account(ctx, accountID)
-	if err != nil {
-		return OrderResult{}, err
-	}
-
-	buy := req.Side == SideBuy
-	mid := midPrice(book, ticker)
-	refPx := mid
-	if req.Type == TypeLimit {
-		refPx = req.Px.Decimal
-	}
-	if req.Sz.Mul(refPx).LessThan(e.cfg.MinNotional) {
-		return OrderResult{}, reject("min_notional", "order value must be at least $%s", e.cfg.MinNotional)
-	}
-
-	// Take liquidity first: market orders up to the slippage bound, limit orders up to their
-	// price. Whatever a limit order can't fill rests on the book.
-	var limitPx decimal.Decimal
-	if req.Type == TypeLimit {
-		limitPx = req.Px.Decimal
-	} else if buy {
-		limitPx = mid.Mul(one.Add(e.cfg.MaxSlippage))
-	} else {
-		limitPx = mid.Mul(one.Sub(e.cfg.MaxSlippage))
-	}
-	levels := book.Bids
-	if buy {
-		levels = book.Asks
-	}
-	filled, notional := WalkBook(levels, buy, req.Sz, limitPx)
-	if req.Type == TypeMarket && filled.IsZero() {
-		return OrderResult{}, reject("no_liquidity", "no liquidity within %s%% of the mid price", e.cfg.MaxSlippage.Shift(2))
-	}
-	remaining := req.Sz.Sub(filled)
-
-	now := e.now()
-	order := accounts.Order{
-		ID:        accounts.NewID(),
-		Coin:      req.Coin,
-		Side:      req.Side,
-		Type:      req.Type,
-		Sz:        req.Sz,
-		FilledSz:  filled,
-		Status:    StatusFilled,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if req.Type == TypeLimit {
-		order.Px = req.Px
-		order.TIF = ptr("gtc")
-		if remaining.IsPositive() {
-			order.Status = StatusOpen
-		}
-	} else {
-		order.TIF = ptr("ioc")
-		if remaining.IsPositive() {
-			order.StatusReason = ptr(fmt.Sprintf("partially filled: no more liquidity within %s%% of mid", e.cfg.MaxSlippage.Shift(2)))
-		}
-	}
-
-	pos := a.position(req.Coin, e.defaultLeverage(ticker))
-	var rec *fillRecord
-	sc := pos.scenario(req.Coin, a.balance)
-	if filled.IsPositive() {
-		// The fee is charged on the exact notional walked, not on size × average price.
-		fee := notional.Mul(e.cfg.TakerFeeRate).Round(usdDecimals)
-		r := e.newFill(pos, &order.ID, req.Coin, buy, filled, notional.Div(filled), fee, "taker", now)
-		rec = &r
-		sc.apply(r, a.balance)
-	}
-	if order.Status == StatusOpen {
-		sc.addOrder = &RestingOrder{Buy: buy, Remaining: remaining, Px: req.Px.Decimal}
-	}
-	if !e.affordable(a, sc) {
-		return OrderResult{}, reject("insufficient_margin", "not enough available margin for this order")
-	}
-
-	err = pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
-		if err := insertOrder(ctx, tx, a.id, a.runID, order); err != nil {
-			return err
-		}
-		if rec != nil {
-			return recordFill(ctx, tx, a.id, a.runID, *rec)
-		}
-		// Persist the leverage the resting order's margin is reserved at, so readers of the
-		// database compute the same margin as the engine.
-		return upsertPosition(ctx, tx, a.id, a.runID, req.Coin, pos, now)
-	})
-	if err != nil {
-		return OrderResult{}, err
-	}
-
-	res := OrderResult{Order: order}
-	if rec != nil {
-		e.applyFill(a, *rec)
-		res.Fill = &rec.fill
-		e.publish(a.id, AccountEvent{Type: "fill", Order: &order, Fill: &rec.fill})
-	} else {
-		e.publish(a.id, AccountEvent{Type: "order", Order: &order})
-	}
-	if order.Status == StatusOpen {
-		o := order
-		a.orders[o.ID] = &o
-		e.index(a, &o)
-	}
-	return res, nil
-}
-
-func (e *Engine) cancelOrder(ctx context.Context, accountID, orderID uuid.UUID) error {
-	a, err := e.account(ctx, accountID)
-	if err != nil {
-		return err
-	}
-	o, ok := a.orders[orderID]
-	if !ok {
-		return reject("not_found", "no open order with that id")
-	}
-	return e.closeOrder(ctx, a, o, "cancelled by user")
-}
-
-// closeOrder cancels an open order with a reason.
-func (e *Engine) closeOrder(ctx context.Context, a *account, o *accounts.Order, reason string) error {
-	updated := *o
-	updated.Status = StatusCancelled
-	updated.StatusReason = ptr(reason)
-	updated.UpdatedAt = e.now()
-	if err := pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error { return updateOrder(ctx, tx, updated) }); err != nil {
-		return err
-	}
-	delete(a.orders, o.ID)
-	e.unindex(o)
-	e.publish(a.id, AccountEvent{Type: "order", Order: &updated})
-	return nil
 }
 
 func (e *Engine) setLeverage(ctx context.Context, accountID uuid.UUID, coin string, leverage int) error {
@@ -503,108 +319,6 @@ func (e *Engine) setLeverage(ctx context.Context, accountID uuid.UUID, coin stri
 	}
 	pos.leverage = leverage
 	e.publish(a.id, AccountEvent{Type: "leverage"})
-	return nil
-}
-
-// --- resting order matching ---
-
-// handleEvent fills resting orders that the market traded through. A buy resting at P fills
-// when a trade prints below P or the best ask drops below P; queue position is unknown, so a
-// trade exactly at P doesn't count (docs/plan.md §4.3).
-func (e *Engine) handleEvent(ctx context.Context, ev event) {
-	orders := e.resting[ev.coin]
-	if len(orders) == 0 {
-		return
-	}
-	ticker, ok := e.md.Ticker(ev.coin)
-	if !ok || ticker.Stale {
-		return
-	}
-
-	var bestBid, bestAsk decimal.Decimal
-	if ev.trades == nil {
-		book, ok := e.md.Book(ev.coin)
-		if !ok {
-			return
-		}
-		if len(book.Bids) > 0 {
-			bestBid = book.Bids[0].Px
-		}
-		if len(book.Asks) > 0 {
-			bestAsk = book.Asks[0].Px
-		}
-	}
-
-	var matched []*accounts.Order
-	for _, o := range orders {
-		px := o.Px.Decimal
-		buy := o.Side == SideBuy
-		crossed := false
-		if ev.trades != nil {
-			for _, t := range ev.trades {
-				// Trades from before the order existed (e.g. replayed after a reconnect)
-				// don't count.
-				if t.Time <= o.CreatedAt.UnixMilli() {
-					continue
-				}
-				if (buy && t.Px.LessThan(px)) || (!buy && t.Px.GreaterThan(px)) {
-					crossed = true
-					break
-				}
-			}
-		} else {
-			crossed = (buy && !bestAsk.IsZero() && bestAsk.LessThan(px)) ||
-				(!buy && !bestBid.IsZero() && bestBid.GreaterThan(px))
-		}
-		if crossed {
-			matched = append(matched, o)
-		}
-	}
-	slices.SortFunc(matched, func(a, b *accounts.Order) int { return a.CreatedAt.Compare(b.CreatedAt) })
-	for _, o := range matched {
-		if err := e.fillResting(ctx, o, ticker); err != nil {
-			slog.Error("engine: fill resting order", "order", o.ID, "err", err)
-		}
-	}
-}
-
-// fillResting fills the rest of a resting limit order at its limit price, as a maker.
-func (e *Engine) fillResting(ctx context.Context, o *accounts.Order, ticker market.Ticker) error {
-	a := e.owners[o.ID]
-	if a == nil {
-		return fmt.Errorf("order %s has no loaded account", o.ID)
-	}
-	buy := o.Side == SideBuy
-	sz := o.Sz.Sub(o.FilledSz)
-	px := o.Px.Decimal
-	now := e.now()
-	pos := a.position(o.Coin, e.defaultLeverage(ticker))
-
-	r := e.newFill(pos, &o.ID, o.Coin, buy, sz, px, Fee(sz, px, e.cfg.MakerFeeRate), "maker", now)
-	sc := pos.scenario(o.Coin, a.balance)
-	sc.apply(r, a.balance)
-	sc.dropOrder = o.ID
-	if !e.affordable(a, sc) {
-		return e.closeOrder(ctx, a, o, "cancelled: insufficient margin when it would have filled")
-	}
-
-	updated := *o
-	updated.FilledSz = o.Sz
-	updated.Status = StatusFilled
-	updated.UpdatedAt = now
-	err := pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
-		if err := updateOrder(ctx, tx, updated); err != nil {
-			return err
-		}
-		return recordFill(ctx, tx, a.id, a.runID, r)
-	})
-	if err != nil {
-		return err
-	}
-	delete(a.orders, o.ID)
-	e.unindex(o)
-	e.applyFill(a, r)
-	e.publish(a.id, AccountEvent{Type: "fill", Order: &updated, Fill: &r.fill})
 	return nil
 }
 
@@ -674,8 +388,7 @@ func (e *Engine) account(ctx context.Context, id uuid.UUID) (*account, error) {
 		}
 	}
 	for _, o := range st.OpenOrders {
-		a.orders[o.ID] = &o
-		e.index(a, &o)
+		e.track(a, o)
 	}
 	e.accounts[id] = a
 	return a, nil
@@ -693,19 +406,6 @@ func (a *account) position(coin string, defaultLeverage int) *position {
 
 func (e *Engine) defaultLeverage(t market.Ticker) int {
 	return min(e.cfg.DefaultLeverage, t.MaxLeverage)
-}
-
-func (e *Engine) index(a *account, o *accounts.Order) {
-	if e.resting[o.Coin] == nil {
-		e.resting[o.Coin] = map[uuid.UUID]*accounts.Order{}
-	}
-	e.resting[o.Coin][o.ID] = o
-	e.owners[o.ID] = a
-}
-
-func (e *Engine) unindex(o *accounts.Order) {
-	delete(e.resting[o.Coin], o.ID)
-	delete(e.owners, o.ID)
 }
 
 func (e *Engine) publish(accountID uuid.UUID, ev AccountEvent) {
@@ -774,11 +474,11 @@ func (e *Engine) coinStates(a *account, sc *scenario) []CoinState {
 		}
 	}
 	for _, o := range a.orders {
-		if sc != nil && o.ID == sc.dropOrder {
+		if (sc != nil && o.ID == sc.dropOrder) || !reservesMargin(o) {
 			continue
 		}
 		c := get(o.Coin)
-		c.Orders = append(c.Orders, RestingOrder{Buy: o.Side == SideBuy, Remaining: o.Sz.Sub(o.FilledSz), Px: o.Px.Decimal})
+		c.Orders = append(c.Orders, restingOrder(o))
 	}
 	if sc != nil {
 		c := get(sc.coin)
@@ -833,8 +533,11 @@ func SummarizeAccount(a accounts.Account, md MarketData) Summary {
 		c.Isolated, c.IsolatedMargin = p.MarginMode == MarginIsolated, p.IsolatedMargin
 	}
 	for _, o := range a.OpenOrders {
+		if !reservesMargin(&o) {
+			continue
+		}
 		c := get(o.Coin)
-		c.Orders = append(c.Orders, RestingOrder{Buy: o.Side == SideBuy, Remaining: o.Sz.Sub(o.FilledSz), Px: o.Px.Decimal})
+		c.Orders = append(c.Orders, restingOrder(&o))
 	}
 	out := make([]CoinState, 0, len(coins))
 	for coin, c := range coins {

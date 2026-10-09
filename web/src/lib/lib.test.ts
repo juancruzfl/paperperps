@@ -120,3 +120,13 @@ describe('applyTrade', () => {
     expect(applyTrade(null, trade(61_000, '5'), minute)?.time).toBe(60)
   })
 })
+
+describe('trigger direction mirrors the engine', () => {
+  it('fires stops against the position and take-profits with it', async () => {
+    const { triggerDirection } = await import('./orders')
+    expect(triggerDirection('stop_market', 'sell')).toBe('≤') // stop-loss on a long
+    expect(triggerDirection('stop_market', 'buy')).toBe('≥') // stop-loss on a short
+    expect(triggerDirection('take_profit_market', 'sell')).toBe('≥') // take-profit on a long
+    expect(triggerDirection('take_profit_limit', 'buy')).toBe('≤') // take-profit on a short
+  })
+})

@@ -27,11 +27,11 @@ type fillRecord struct {
 
 func insertOrder(ctx context.Context, tx pgx.Tx, accountID, runID uuid.UUID, o accounts.Order) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO orders (id, account_id, run_id, coin, side, type, px, sz, filled_sz, tif,
-			reduce_only, status, status_reason, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-		o.ID, accountID, runID, o.Coin, o.Side, o.Type, o.Px, o.Sz, o.FilledSz, o.TIF,
-		o.ReduceOnly, o.Status, o.StatusReason, o.CreatedAt, o.UpdatedAt)
+		INSERT INTO orders (id, account_id, run_id, coin, side, type, px, trigger_px, sz, filled_sz, tif,
+			reduce_only, parent_order_id, oco_group, status, status_reason, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+		o.ID, accountID, runID, o.Coin, o.Side, o.Type, o.Px, o.TriggerPx, o.Sz, o.FilledSz, o.TIF,
+		o.ReduceOnly, o.ParentOrderID, o.OcoGroup, o.Status, o.StatusReason, o.CreatedAt, o.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("insert order: %w", err)
 	}
@@ -40,8 +40,9 @@ func insertOrder(ctx context.Context, tx pgx.Tx, accountID, runID uuid.UUID, o a
 
 func updateOrder(ctx context.Context, tx pgx.Tx, o accounts.Order) error {
 	_, err := tx.Exec(ctx, `
-		UPDATE orders SET filled_sz = $2, status = $3, status_reason = $4, updated_at = $5
-		WHERE id = $1`, o.ID, o.FilledSz, o.Status, o.StatusReason, o.UpdatedAt)
+		UPDATE orders SET filled_sz = $2, status = $3, status_reason = $4, updated_at = $5,
+			sz = $6, px = $7, trigger_px = $8
+		WHERE id = $1`, o.ID, o.FilledSz, o.Status, o.StatusReason, o.UpdatedAt, o.Sz, o.Px, o.TriggerPx)
 	if err != nil {
 		return fmt.Errorf("update order: %w", err)
 	}
