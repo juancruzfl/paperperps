@@ -42,6 +42,7 @@ var adminRoutes = []adminRoute{
 	{"POST /api/admin/accounts/{id}/reset", handleAdminReset},
 	{"POST /api/admin/accounts/{id}/delete", handleAdminDelete},
 	{"GET /api/admin/actions", handleAdminActions},
+	{"GET /api/admin/flagged-handles", handleAdminFlagged},
 }
 
 func mountAdmin(mux *http.ServeMux, d Deps) {
@@ -137,6 +138,8 @@ func adminStoreError(w http.ResponseWriter, what string, err error) {
 	switch {
 	case errors.Is(err, accounts.ErrNotFound):
 		writeError(w, http.StatusNotFound, "account_not_found", "no such account")
+	case errors.Is(err, accounts.ErrHandleOffensive):
+		writeError(w, http.StatusBadRequest, "offensive_handle", "that handle isn’t allowed: handles are public, so no slurs or obscenities")
 	case errors.Is(err, accounts.ErrHandleInvalid):
 		writeError(w, http.StatusBadRequest, "invalid_handle",
 			"handles are 3–24 lowercase letters, digits, - or _, and can't contain reserved words")
@@ -160,6 +163,17 @@ func handleAdminSearch(d Deps) http.HandlerFunc {
 		rows, err := d.Accounts.Search(r.Context(), r.URL.Query().Get("q"), queryLimit(r, 50, 200))
 		if err != nil {
 			internalError(w, "admin search", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, rows)
+	}
+}
+
+func handleAdminFlagged(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := d.Accounts.FlaggedHandles(r.Context())
+		if err != nil {
+			internalError(w, "admin flagged handles", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, rows)

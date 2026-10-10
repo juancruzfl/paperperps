@@ -171,6 +171,8 @@ func handleUpdateProfile(store *accounts.Store, lb *leaderboard.Service) http.Ha
 			return
 		}
 		switch err := store.UpdateProfile(r.Context(), accountID(r), p); {
+		case errors.Is(err, accounts.ErrHandleOffensive):
+			writeError(w, http.StatusBadRequest, "offensive_handle", "that handle isn’t allowed: handles are public, so no slurs or obscenities")
 		case errors.Is(err, accounts.ErrHandleInvalid):
 			writeError(w, http.StatusBadRequest, "invalid_handle",
 				"handles are 3–24 lowercase letters, digits, - or _, and can't contain reserved words")
