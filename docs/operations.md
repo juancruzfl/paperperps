@@ -124,3 +124,19 @@ make backup     # pg_dump with DATABASE_URL
 | `LIQUIDATION_MODE` | `forfeit` (default) or `market` | Applies to the next liquidation. |
 | `MARKETS` | Comma-separated coins | A removed coin that people still hold becomes close-only (reduce-only orders, hidden from the market list) until it's no longer held at a restart. |
 | `RESET_COOLDOWN`, `LEADERBOARD_MIN_TRADES`, `LEADERBOARD_MIN_AGE` | Rules | Restart needed. |
+
+## Promises in the Terms and Privacy Policy
+
+`/terms` and `/privacy` (text in `web/src/components/LegalPages.tsx`; operator, contact,
+governing law and effective date in `web/src/lib/legal.ts`) commit to the following. Keep
+them true, or update the documents and their effective date first.
+
+| Promise | What keeps it true |
+|---|---|
+| **legal@paperperps.lol reaches someone** | Set up email forwarding for it at Porkbun (Domain → Email Forwarding) when the domain is bought. |
+| **No cookies, analytics, ads or tracking** | Adding any analytics, error reporting or third-party script means updating the Privacy Policy first. |
+| **IP addresses are not stored or logged by us** | The request log (`logRequests`) records method, path, status and duration only. Don't add IPs or headers to it. |
+| **Self-serve deletion is immediate** | `DELETE /api/me` cascades over every table that references `accounts`. A new table with account data needs `ON DELETE CASCADE` too; `TestDeleteAccountRemovesEverything` checks the list. |
+| **Deleted data leaves backups within 30 days** | Don't keep `make backup` dumps, or Railway backups, longer than 30 days. |
+| **Equity snapshots are kept 35 days** | `engine.SnapshotRetention`. |
+| **Service providers: Railway and Porkbun** | Name any new provider that handles requests or data in the Privacy Policy. |

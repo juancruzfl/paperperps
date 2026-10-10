@@ -58,7 +58,9 @@ Migrations run automatically at startup.
      answer set to the Railway target. Apex domains can't use CNAME.
    - `www`: add a **CNAME** to the Railway target. The app redirects `www` to the apex.
    - Add any TXT verification records Railway showed.
-4. Wait for Railway to show the domains as verified. It issues TLS certificates
+4. Set up **email forwarding** for `legal@paperperps.lol` (Porkbun → Email Forwarding) to an
+   inbox you read. The Terms and Privacy Policy list it as the contact address.
+5. Wait for Railway to show the domains as verified. It issues TLS certificates
    automatically. DNS can take anywhere from a few minutes to a few hours.
 
 ## Deploys

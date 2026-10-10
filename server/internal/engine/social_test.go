@@ -140,3 +140,58 @@ func TestPruneSnapshotsKeepsBaselines(t *testing.T) {
 		t.Errorf("flat account keeps %v, want its latest baseline [80]", got)
 	}
 }
+
+func TestDeleteAccountRemovesEverything(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	id := h.newAccount()
+	other := h.newAccount()
+	h.submit(id, req(SideBuy, TypeMarket, "0.01").tp("90000"))
+	h.submit(id, req(SideBuy, TypeLimit, "0.01").px("70000"))
+	h.submit(other, req(SideBuy, TypeLimit, "0.01").px("70000"))
+	if err := h.eng.ResetAccount(ctx, other); err != nil { // other has two runs
+		t.Fatal(err)
+	}
+	h.submit(other, req(SideBuy, TypeLimit, "0.01").px("70000"))
+	h.eng.do(ctx, func(ctx context.Context) error { h.eng.snapshot(ctx, false); return nil })
+
+	if err := h.eng.DeleteAccount(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"accounts", "runs", "positions", "orders", "fills", "ledger_entries", "funding_payments", "equity_snapshots"} {
+		col := "account_id"
+		if table == "accounts" {
+			col = "id"
+		}
+		var n int
+		if err := h.pool.QueryRow(ctx, "SELECT count(*) FROM "+table+" WHERE "+col+" = $1", id).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Errorf("%d rows left in %s", n, table)
+		}
+	}
+	if _, err := h.store.Load(ctx, other); err != nil {
+		t.Errorf("another account was affected: %v", err)
+	}
+	if err := h.eng.do(ctx, func(context.Context) error {
+		if _, loaded := h.eng.accounts[id]; loaded {
+			t.Error("deleted account still in memory")
+		}
+		for _, orders := range h.eng.resting {
+			for _, o := range orders {
+				if h.eng.owners[o.ID] == nil {
+					t.Error("resting order without an owner")
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Resting orders of the deleted account no longer fill.
+	h.md.setBook("BTC", "60000", "60010")
+	h.eng.BookChanged("BTC")
+	h.runRisk()
+	wantReject(t, h.eng.DeleteAccount(ctx, id), "not_found")
+}

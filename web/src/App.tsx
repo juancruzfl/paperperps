@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AccountMenu, RecoveryNotice } from './components/AccountMenu'
 import { AccountPanel } from './components/AccountPanel'
 import { AboutPage } from './components/AboutPage'
+import { PrivacyPage, TermsPage } from './components/LegalPages'
 import { Chart } from './components/Chart'
 import { LeaderboardPage } from './components/LeaderboardPage'
 import { MarketSelector } from './components/MarketSelector'
@@ -54,7 +55,8 @@ function App() {
 
   useEffect(() => {
     if (page !== 'trade') {
-      document.title = `${page === 'leaderboard' ? 'Leaderboard' : 'How it works'} · PaperPerps`
+      const titles = { leaderboard: 'Leaderboard', about: 'How it works', terms: 'Terms of Service', privacy: 'Privacy Policy' }
+      document.title = `${titles[page]} · PaperPerps`
       return
     }
     const px = ticker ? ` ${Number(ticker.markPx).toLocaleString('en-US')}` : ''
@@ -95,6 +97,10 @@ function App() {
         <LeaderboardPage />
       ) : page === 'about' ? (
         <AboutPage />
+      ) : page === 'terms' ? (
+        <TermsPage />
+      ) : page === 'privacy' ? (
+        <PrivacyPage />
       ) : (
         <>
       <StatsBar ticker={ticker} />
@@ -120,7 +126,7 @@ function App() {
       )}
 
       <Toasts />
-      <Footer status={status} onAbout={() => setPage('about')} />
+      <Footer status={status} />
     </div>
   )
 }
@@ -171,7 +177,7 @@ function ConnectionBanner() {
   )
 }
 
-function Footer({ status, onAbout }: { status: Status | null; onAbout: () => void }) {
+function Footer({ status }: { status: Status | null }) {
   const conn = useConnection()
   const label = conn === 'open' ? 'Connected' : conn === 'connecting' ? 'Connecting…' : 'Reconnecting…'
   return (
@@ -183,15 +189,7 @@ function Footer({ status, onAbout }: { status: Status | null; onAbout: () => voi
       </span>
       <span className="muted">
         Paper trading with pretend money. Not affiliated with Hyperliquid. Not financial advice.{' '}
-        <a
-          href="/about"
-          onClick={(e) => {
-            e.preventDefault()
-            onAbout()
-          }}
-        >
-          How it works
-        </a>
+        <a href="/about">How it works</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a>
       </span>
     </footer>
   )

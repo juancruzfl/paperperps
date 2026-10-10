@@ -68,9 +68,26 @@ test('a visitor trades, a take-profit fires, and the account resets', async ({ p
     await expect(page.locator('.account-value')).toHaveText('$1,000.00')
   })
 
-  await test.step('how it works', async () => {
-    await page.getByRole('link', { name: 'How it works' }).click()
+  await test.step('how it works, terms and privacy', async () => {
+    await page.locator('footer').getByRole('link', { name: 'How it works' }).click()
     await expect(page.getByText('Paper trading only.')).toBeVisible()
+    await page.locator('footer').getByRole('link', { name: 'Terms', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Terms of Service' })).toBeVisible()
+    await expect(page).toHaveURL(/\/terms$/)
+    await page.locator('footer').getByRole('link', { name: 'Privacy', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Privacy Policy' })).toBeVisible()
+  })
+
+  await test.step('delete the account: this browser starts over', async () => {
+    const handle = await page.locator('.account-handle').innerText()
+    await page.locator('.account-button').click()
+    await page.getByRole('menuitem', { name: 'Delete account…' }).click()
+    const dialog = page.locator('dialog[open]')
+    await expect(dialog.getByRole('button', { name: 'Delete forever' })).toBeDisabled()
+    await dialog.getByLabel('Type delete').fill('delete')
+    await dialog.getByRole('button', { name: 'Delete forever' }).click()
+    await expect(page.locator('.account-value')).toHaveText('$1,000.00')
+    await expect(page.locator('.account-handle')).not.toHaveText(handle)
   })
 })
 

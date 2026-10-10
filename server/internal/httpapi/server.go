@@ -86,6 +86,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/me", auth(handleMe(d.Accounts, d.Market, cfg.ResetCooldown)))
 	mux.HandleFunc("PATCH /api/me", trade(handleUpdateProfile(d.Accounts, d.Leaderboard)))
 	mux.HandleFunc("POST /api/me/reset", trade(handleReset(d.Engine, d.Leaderboard)))
+	mux.HandleFunc("DELETE /api/me", trade(handleDeleteAccount(d.Engine, d.Leaderboard)))
 	mux.HandleFunc("GET /api/me/equity", auth(handleEquity(d.Accounts)))
 	mux.HandleFunc("GET /api/leaderboard", handleLeaderboard(d.Leaderboard, d.Accounts))
 	mux.HandleFunc("GET /api/me/orders", auth(handleHistory("order history", d.Accounts.OrderHistory)))

@@ -161,6 +161,7 @@ Built (M1–M2):
 | GET | `/api/status` | Version, engine leader/standby, network, markets |
 | PATCH | `/api/me` | `{handle?, leaderboardOptIn?}` |
 | POST | `/api/me/reset` | Fresh $1,000 run; 24h cooldown (`reset_cooldown` otherwise) |
+| DELETE | `/api/me` | `{confirm: "delete"}` permanently deletes the account and all its data (Privacy Policy) |
 | GET | `/api/me/equity` | Equity and lifetime PnL snapshots: every 5 min for 48h, hourly back to 30 days |
 | GET | `/api/leaderboard?window=24h\|7d\|30d\|all` | Top 100, plus your own standing when authenticated |
 | WS | `/ws` | Topics: `markets`, `book:<coin>`, `trades:<coin>`, and private `account:<id>` (needs `token`) |

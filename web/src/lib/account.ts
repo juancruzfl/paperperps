@@ -29,6 +29,17 @@ function saveSecret(secret: string) {
   }
 }
 
+/** Forgets this browser's account after it was deleted on the server. */
+export function forgetAccount() {
+  memorySecret = null
+  try {
+    localStorage.removeItem(SECRET_KEY)
+    localStorage.removeItem(NOTICE_KEY)
+  } catch {
+    // nothing stored
+  }
+}
+
 export function recoveryNoticeDismissed(): boolean {
   try {
     return localStorage.getItem(NOTICE_KEY) === '1'

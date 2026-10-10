@@ -176,3 +176,31 @@ func (e *Engine) pruneSnapshots(ctx context.Context) {
 	e.lastPrune = e.now()
 	slog.Info("pruned equity snapshots", "deleted", tag.RowsAffected(), "older_than", cutoff)
 }
+
+// --- deletion ---
+
+// DeleteAccount permanently deletes the account and everything recorded about it: runs,
+// positions, orders, fills, ledger, funding and equity snapshots (docs: Privacy Policy).
+// It runs on the engine so the account's open orders leave memory in the same step.
+func (e *Engine) DeleteAccount(ctx context.Context, accountID uuid.UUID) error {
+	return e.do(ctx, func(ctx context.Context) error { return e.deleteAccount(ctx, accountID) })
+}
+
+func (e *Engine) deleteAccount(ctx context.Context, accountID uuid.UUID) error {
+	// Every table that refers to the account cascades from it.
+	tag, err := e.pool.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
+	if err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return reject("not_found", "no such account")
+	}
+	if a, ok := e.accounts[accountID]; ok {
+		for _, o := range a.orders {
+			e.unindex(o)
+		}
+		delete(e.accounts, accountID)
+	}
+	slog.Info("account deleted", "account", accountID)
+	return nil
+}

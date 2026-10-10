@@ -58,6 +58,8 @@ export const api = {
   updateProfile: (secret: string, profile: { handle?: string; leaderboardOptIn?: boolean }) =>
     request<void>('/api/me', { method: 'PATCH', secret, body: JSON.stringify(profile) }),
   reset: (secret: string) => request<void>('/api/me/reset', { method: 'POST', secret }),
+  deleteAccount: (secret: string) =>
+    request<void>('/api/me', { method: 'DELETE', secret, body: JSON.stringify({ confirm: 'delete' }) }),
   equity: (secret: string) => request<EquityPoint[]>('/api/me/equity', { secret }),
   leaderboard: (window: LeaderboardWindow, secret?: string | null) =>
     request<Leaderboard>(`/api/leaderboard?window=${window}`, { secret: secret ?? undefined }),

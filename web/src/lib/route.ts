@@ -20,12 +20,29 @@ function coinFromPath(): string {
   return m ? decodeURIComponent(m[1]) : DEFAULT_COIN
 }
 
-export type Page = 'trade' | 'leaderboard' | 'about'
+export type Page = 'trade' | 'leaderboard' | 'about' | 'terms' | 'privacy'
+
+const PAGES: Page[] = ['leaderboard', 'about', 'terms', 'privacy']
 
 function pageFromPath(): Page {
-  if (location.pathname.startsWith('/leaderboard')) return 'leaderboard'
-  if (location.pathname.startsWith('/about')) return 'about'
-  return 'trade'
+  return PAGES.find((p) => location.pathname.startsWith(`/${p}`)) ?? 'trade'
+}
+
+/**
+ * Makes plain <a href="/…"> links inside the app navigate without a page reload. Links with
+ * a modifier key, a target or another origin behave normally.
+ */
+export function interceptLinks() {
+  document.addEventListener('click', (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    const a = (e.target as Element | null)?.closest('a')
+    if (!a || a.target || a.origin !== location.origin || !a.pathname.startsWith('/')) return
+    if (a.getAttribute('href')?.startsWith('mailto:')) return
+    e.preventDefault()
+    if (a.pathname !== location.pathname) history.pushState(null, '', a.pathname)
+    for (const l of listeners) l()
+    window.scrollTo(0, 0)
+  })
 }
 
 /** The current page, and a function to go to another. */

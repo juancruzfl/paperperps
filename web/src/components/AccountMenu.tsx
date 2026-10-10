@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import {
   dismissRecoveryNotice,
+  forgetAccount,
   refreshAccount,
   recoveryLink,
   recoveryNoticeDismissed,
@@ -29,6 +30,7 @@ export function AccountMenu() {
   const rootRef = useRef<HTMLDivElement>(null)
   const restoreRef = useRef<HTMLDialogElement>(null)
   const resetRef = useRef<HTMLDialogElement>(null)
+  const deleteRef = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -84,10 +86,22 @@ export function AccountMenu() {
           >
             Reset account…
           </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="danger"
+            onClick={() => {
+              setOpen(false)
+              deleteRef.current?.showModal()
+            }}
+          >
+            Delete account…
+          </button>
         </div>
       )}
       <RestoreDialog dialogRef={restoreRef} />
       <ResetDialog dialogRef={resetRef} />
+      <DeleteDialog dialogRef={deleteRef} />
     </div>
   )
 }
@@ -149,6 +163,52 @@ function ResetDialog({ dialogRef }: { dialogRef: React.RefObject<HTMLDialogEleme
         </button>
         <button type="button" className="primary danger" onClick={() => void reset()} disabled={busy || waiting}>
           {busy ? 'Resetting…' : 'Reset to $1,000'}
+        </button>
+      </div>
+    </dialog>
+  )
+}
+
+function DeleteDialog({ dialogRef }: { dialogRef: React.RefObject<HTMLDialogElement | null> }) {
+  const { me, secret } = useAccount()
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const remove = async () => {
+    if (!secret) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.deleteAccount(secret)
+      forgetAccount()
+      // Start over as a new visitor.
+      location.assign('/')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not reach the server')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <dialog ref={dialogRef} className="dialog" aria-labelledby="delete-title">
+      <h3 id="delete-title">Delete your account?</h3>
+      <p className="small">
+        This permanently deletes <strong>{me?.handle}</strong> and everything we store about it: balances, positions,
+        orders, trade and funding history, and your place on the leaderboard. It can’t be undone, and your recovery link
+        stops working. This browser then starts a new account.
+      </p>
+      <label className="field">
+        <span>Type delete</span>
+        <input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
+      </label>
+      {error && <p className="form-error">{error}</p>}
+      <div className="dialog-actions">
+        <button type="button" className="ghost" onClick={() => dialogRef.current?.close()}>
+          Cancel
+        </button>
+        <button type="button" className="primary danger" onClick={() => void remove()} disabled={busy || typed.trim().toLowerCase() !== 'delete'}>
+          {busy ? 'Deleting…' : 'Delete forever'}
         </button>
       </div>
     </dialog>
@@ -217,7 +277,8 @@ export function RecoveryNotice() {
     <div className="notice" role="status">
       <span>
         You’ve got <strong>$1,000</strong> in paper money. Save your recovery link to keep this
-        account on another device; there’s no login.
+        account on another device; there’s no login. By using PaperPerps you agree to the{' '}
+        <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.
       </span>
       <span className="notice-actions">
         <button type="button" className="primary small-btn" onClick={() => void copy(recoveryLink(secret), 'Recovery link')}>

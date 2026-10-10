@@ -374,3 +374,28 @@ func handleSetPositionTPSL(eng *engine.Engine) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, orders)
 	}
 }
+
+// handleDeleteAccount permanently deletes the caller's account. The body must be
+// {"confirm": "delete"} so a stray request can't do it.
+func handleDeleteAccount(eng *engine.Engine, lb *leaderboard.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Confirm string `json:"confirm"`
+		}
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		if body.Confirm != "delete" {
+			writeError(w, http.StatusBadRequest, "confirmation_required", `send {"confirm": "delete"} to delete this account`)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), engineTimeout)
+		defer cancel()
+		if err := eng.DeleteAccount(ctx, accountID(r)); err != nil {
+			engineError(w, "delete account", err)
+			return
+		}
+		lb.Invalidate()
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
