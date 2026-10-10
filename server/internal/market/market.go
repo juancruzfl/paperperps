@@ -10,6 +10,7 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,14 @@ const (
 
 func BookTopic(coin string) string   { return topicBook + coin }
 func TradesTopic(coin string) string { return topicTrades + coin }
+
+// GroupedSigFigs are the coarser order book groupings offered for display, as significant
+// figures: for BTC near $80,000 they're $10, $100 and $1,000 steps. Matching always uses
+// the raw book.
+var GroupedSigFigs = []int{4, 3, 2}
+
+// GroupedBookTopic is the topic of coin's book grouped to n significant figures.
+func GroupedBookTopic(coin string, n int) string { return topicBook + coin + "@" + strconv.Itoa(n) }
 
 // Info is the subset of the Hyperliquid REST API the service uses.
 type Info interface {
@@ -117,6 +126,7 @@ type Service struct {
 	connected bool
 	order     []string // enabled markets, in configured order
 	states    map[string]*state
+	grouped   map[string]*Book // GroupedBookTopic → latest grouped book
 }
 
 func New(o Options) *Service {
@@ -126,6 +136,7 @@ func New(o Options) *Service {
 		staleAfter: o.StaleAfter,
 		now:        o.Now,
 		states:     map[string]*state{},
+		grouped:    map[string]*Book{},
 	}
 	if s.staleAfter == 0 {
 		s.staleAfter = 30 * time.Second
@@ -164,6 +175,10 @@ func (s *Service) Run(ctx context.Context, wsURL string) {
 
 	stream := &hyperliquid.Stream{URL: wsURL, Subs: s.subscriptions(), Handler: s}
 	go stream.Run(ctx)
+	for _, n := range GroupedSigFigs {
+		g := &hyperliquid.Stream{URL: wsURL, Subs: s.groupedSubscriptions(n), Handler: groupedHandler{s, n}}
+		go g.Run(ctx)
+	}
 
 	tickers := time.NewTicker(time.Second)
 	defer tickers.Stop()
@@ -236,6 +251,44 @@ func (s *Service) subscriptions() []hyperliquid.Subscription {
 		)
 	}
 	return subs
+}
+
+func (s *Service) groupedSubscriptions(n int) []hyperliquid.Subscription {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	subs := make([]hyperliquid.Subscription, 0, len(s.order))
+	for _, coin := range s.order {
+		subs = append(subs, hyperliquid.Subscription{Type: "l2Book", Coin: coin, NSigFigs: n})
+	}
+	return subs
+}
+
+// groupedHandler receives one grouping's books. They're for display only: they don't
+// count toward feed health or reach the engine.
+type groupedHandler struct {
+	s *Service
+	n int
+}
+
+func (h groupedHandler) OnConnect()                            {}
+func (h groupedHandler) OnTrades([]hyperliquid.Trade)          {}
+func (h groupedHandler) OnAssetCtx(hyperliquid.ActiveAssetCtx) {}
+func (h groupedHandler) OnDisconnect(err error) {
+	slog.Info("grouped order book feed disconnected", "sig_figs", h.n, "err", err)
+}
+
+func (h groupedHandler) OnBook(b hyperliquid.L2Book) {
+	topic := GroupedBookTopic(b.Coin, h.n)
+	book := Book{Coin: b.Coin, Time: b.Time, Bids: b.Bids(), Asks: b.Asks()}
+	h.s.mu.Lock()
+	_, ok := h.s.states[b.Coin]
+	if ok {
+		h.s.grouped[topic] = &book
+	}
+	h.s.mu.Unlock()
+	if ok {
+		h.s.pub.Publish(topic, book)
+	}
 }
 
 // SetObserver registers o for market changes; nil removes it.
@@ -325,6 +378,16 @@ func (s *Service) Snapshot(topic string) (any, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if coin, ok := strings.CutPrefix(topic, topicBook); ok {
+		if c, n, grouped := strings.Cut(coin, "@"); grouped {
+			sig, err := strconv.Atoi(n)
+			if _, known := s.states[c]; !known || err != nil || !slices.Contains(GroupedSigFigs, sig) {
+				return nil, false
+			}
+			if b := s.grouped[topic]; b != nil {
+				return *b, true
+			}
+			return nil, true
+		}
 		st, ok := s.states[coin]
 		if !ok {
 			return nil, false

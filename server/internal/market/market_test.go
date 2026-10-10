@@ -160,6 +160,36 @@ func TestOnBookPublishesAndSnapshots(t *testing.T) {
 	}
 }
 
+func TestGroupedBooks(t *testing.T) {
+	s, pub, _ := newTestService(t)
+	topic := GroupedBookTopic("BTC", 3)
+	if topic != "book:BTC@3" {
+		t.Fatalf("topic = %q", topic)
+	}
+	if snap, ok := s.Snapshot(topic); !ok || snap != nil {
+		t.Errorf("snapshot before any book = %v, %v; want nil, true", snap, ok)
+	}
+	groupedHandler{s, 3}.OnBook(hyperliquid.L2Book{Coin: "BTC", Time: 1, Levels: [2][]hyperliquid.Level{
+		{{Px: d("82000"), Sz: d("12"), N: 40}},
+		{{Px: d("82100"), Sz: d("9"), N: 31}},
+	}})
+	if len(pub.msgs) != 1 || pub.msgs[0].topic != "book:BTC@3" {
+		t.Fatalf("published = %+v", pub.msgs)
+	}
+	if snap, _ := s.Snapshot(topic); snap.(Book).Bids[0].Sz.String() != "12" {
+		t.Errorf("snapshot = %+v", snap)
+	}
+	// The raw book, which the engine matches against, is untouched.
+	if _, ok := s.Book("BTC"); ok {
+		t.Error("a grouped book became the raw book")
+	}
+	for _, bad := range []string{"book:BTC@7", "book:BTC@x", "book:XRP@3"} {
+		if _, ok := s.Snapshot(bad); ok {
+			t.Errorf("%s should not exist", bad)
+		}
+	}
+}
+
 func trade(tid, ms int64) hyperliquid.Trade {
 	return hyperliquid.Trade{Coin: "BTC", Tid: tid, Time: ms, Side: hyperliquid.SideBuy, Px: d("1"), Sz: d("1")}
 }
