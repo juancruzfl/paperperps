@@ -174,6 +174,7 @@ type Engine struct {
 	owners   map[uuid.UUID]*account                   // open order id → its account
 
 	lastFunding time.Time // the last funding hour settled
+	lastPrune   time.Time // when old equity snapshots were last pruned
 }
 
 func New(pool *pgxpool.Pool, md MarketData, pub Publisher, cfg Config) *Engine {
@@ -262,6 +263,9 @@ func (e *Engine) Run(ctx context.Context) error {
 			e.riskTick(ctx)
 		case <-snapshots.C:
 			e.snapshot(ctx, false)
+			if e.now().Sub(e.lastPrune) > 24*time.Hour {
+				e.pruneSnapshots(ctx)
+			}
 		}
 	}
 }
@@ -586,3 +590,33 @@ func midPrice(b market.Book, t market.Ticker) decimal.Decimal {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// Stats describes the engine's load, for monitoring.
+type Stats struct {
+	Running         bool      `json:"running"`
+	Accounts        int       `json:"accountsLoaded"`
+	RestingOrders   int       `json:"restingOrders"`
+	TriggerOrders   int       `json:"triggerOrders"`
+	EventQueue      int       `json:"eventQueue"`
+	EventQueueCap   int       `json:"eventQueueCapacity"`
+	EventsDropped   int64     `json:"eventsDropped"`
+	LastFundingHour time.Time `json:"lastFundingHour"`
+}
+
+// Stats reads the engine's counters. Only a running engine has them.
+func (e *Engine) Stats(ctx context.Context) Stats {
+	st := Stats{EventQueue: len(e.events), EventQueueCap: cap(e.events), EventsDropped: e.dropped.Load()}
+	_ = e.do(ctx, func(context.Context) error {
+		st.Running = true
+		st.Accounts = len(e.accounts)
+		for _, m := range e.resting {
+			st.RestingOrders += len(m)
+		}
+		for _, m := range e.triggers {
+			st.TriggerOrders += len(m)
+		}
+		st.LastFundingHour = e.lastFunding
+		return nil
+	})
+	return st
+}

@@ -6,12 +6,14 @@ touches a chain.
 
 - Product and architecture: [docs/plan.md](docs/plan.md)
 - Deploying (Railway + paperperps.lol): [docs/deploy.md](docs/deploy.md)
+- Running it (health, alerts, incidents, backups, capacity): [docs/operations.md](docs/operations.md)
 
 ## Layout
 
 ```
 server/   Go backend: API, websocket, trading engine; serves the built frontend
   cmd/paperperps/        entry point
+  cmd/loadtest/          load generator for a running server
   internal/config/       env configuration
   internal/db/           Postgres pool + embedded goose migrations
   internal/leader/       advisory lock so only one engine runs
@@ -43,6 +45,8 @@ Open http://localhost:5173.
 ```sh
 make test      # go vet + go test (incl. DB integration tests) + web lint/build
 make docker    # build the production image
+make loadtest  # load an isolated instance on :8099
+make drill     # redeploy + crash drill against a throwaway database
 make help      # all targets
 ```
 

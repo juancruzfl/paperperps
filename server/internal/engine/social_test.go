@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -96,5 +97,46 @@ func TestEquitySnapshots(t *testing.T) {
 	snap() // flat and unchanged: skipped
 	if n := count(); n != 3 {
 		t.Errorf("snapshots = %d, want 3", n)
+	}
+}
+
+func TestPruneSnapshotsKeepsBaselines(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	h.setClock(now)
+	h.start()
+	active, flat := h.newAccount(), h.newAccount()
+	insert := func(id any, daysAgo int) {
+		_, err := h.pool.Exec(ctx, `INSERT INTO equity_snapshots (account_id, run_id, ts, equity, cumulative_pnl)
+			SELECT id, current_run_id, $2, 1000, 0 FROM accounts WHERE id = $1`, id, now.Add(-time.Duration(daysAgo)*24*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, d := range []int{60, 50, 40, 10, 1} {
+		insert(active, d)
+	}
+	insert(flat, 90) // flat since: its only snapshot is the baseline for every window
+	insert(flat, 80)
+
+	if err := h.eng.do(ctx, func(ctx context.Context) error { h.eng.pruneSnapshots(ctx); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	days := func(id any) []int {
+		rows, _ := h.pool.Query(ctx, `SELECT ts FROM equity_snapshots WHERE account_id = $1 ORDER BY ts DESC`, id)
+		var out []int
+		for rows.Next() {
+			var ts time.Time
+			rows.Scan(&ts)
+			out = append(out, int(now.Sub(ts).Hours()/24))
+		}
+		return out
+	}
+	if got := days(active); !slices.Equal(got, []int{1, 10, 40}) {
+		t.Errorf("active account keeps %v, want [1 10 40]", got)
+	}
+	if got := days(flat); !slices.Equal(got, []int{80}) {
+		t.Errorf("flat account keeps %v, want its latest baseline [80]", got)
 	}
 }

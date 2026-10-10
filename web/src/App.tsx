@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AccountMenu, RecoveryNotice } from './components/AccountMenu'
 import { AccountPanel } from './components/AccountPanel'
+import { AboutPage } from './components/AboutPage'
 import { Chart } from './components/Chart'
 import { LeaderboardPage } from './components/LeaderboardPage'
 import { MarketSelector } from './components/MarketSelector'
@@ -49,8 +50,8 @@ function App() {
   }, [page, coin, ticker, tickers, setCoin])
 
   useEffect(() => {
-    if (page === 'leaderboard') {
-      document.title = 'Leaderboard · PaperPerps'
+    if (page !== 'trade') {
+      document.title = `${page === 'leaderboard' ? 'Leaderboard' : 'How it works'} · PaperPerps`
       return
     }
     const px = ticker ? ` ${Number(ticker.markPx).toLocaleString('en-US')}` : ''
@@ -89,6 +90,8 @@ function App() {
 
       {page === 'leaderboard' ? (
         <LeaderboardPage />
+      ) : page === 'about' ? (
+        <AboutPage />
       ) : (
         <>
       <StatsBar ticker={ticker} />
@@ -114,7 +117,7 @@ function App() {
       )}
 
       <Toasts />
-      <Footer status={status} />
+      <Footer status={status} onAbout={() => setPage('about')} />
     </div>
   )
 }
@@ -165,7 +168,7 @@ function ConnectionBanner() {
   )
 }
 
-function Footer({ status }: { status: Status | null }) {
+function Footer({ status, onAbout }: { status: Status | null; onAbout: () => void }) {
   const conn = useConnection()
   const label = conn === 'open' ? 'Connected' : conn === 'connecting' ? 'Connecting…' : 'Reconnecting…'
   return (
@@ -175,7 +178,18 @@ function Footer({ status }: { status: Status | null }) {
         {label}
         {status && ` · Hyperliquid ${status.network} data`}
       </span>
-      <span className="muted">Not affiliated with Hyperliquid. All orders are simulated.</span>
+      <span className="muted">
+        Paper trading with pretend money. Not affiliated with Hyperliquid. Not financial advice.{' '}
+        <a
+          href="/about"
+          onClick={(e) => {
+            e.preventDefault()
+            onAbout()
+          }}
+        >
+          How it works
+        </a>
+      </span>
     </footer>
   )
 }

@@ -31,6 +31,21 @@ func Acquire(ctx context.Context, databaseURL string, key int64, interval time.D
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
+	// If the leader's machine disappears without closing its connection (host failure,
+	// network partition), Postgres would otherwise keep the session, and the lock, until
+	// the OS gives up on TCP, about two hours by default. With these, the server probes an
+	// idle connection after 10s and drops it after three missed probes 5s apart: a standby
+	// can take over in about 25s.
+	for _, set := range []string{
+		"SET tcp_keepalives_idle = 10",
+		"SET tcp_keepalives_interval = 5",
+		"SET tcp_keepalives_count = 3",
+	} {
+		if _, err := conn.Exec(ctx, set); err != nil {
+			conn.Close(context.Background())
+			return nil, fmt.Errorf("%s: %w", set, err)
+		}
+	}
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

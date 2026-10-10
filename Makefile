@@ -2,7 +2,7 @@
 -include .env
 export
 
-.PHONY: help setup db-up db-down db-reset server web test test-server test-web lint build docker
+.PHONY: help setup db-up db-down db-reset server web test test-server test-web lint build docker loadtest drill backup
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -42,3 +42,15 @@ build: ## Build the frontend and server binary
 
 docker: ## Build the production image
 	docker build -t paperperps .
+
+loadtest: ## Load test an isolated server on :8099 (LOADTEST_FLAGS="-accounts 50" to tweak)
+	@psql "postgres://paperperps:paperperps@localhost:5433/paperperps" -qtAc "DROP DATABASE IF EXISTS paperperps_load WITH (FORCE)" -c "CREATE DATABASE paperperps_load"
+	cd server && go build -o ../bin/paperperps-load ./cmd/paperperps
+	DATABASE_URL="postgres://paperperps:paperperps@localhost:5433/paperperps_load?sslmode=disable" PORT=8099 WEB_DIR= ./bin/paperperps-load > bin/loadtest-server.log 2>&1 & \
+		pid=$$!; sleep 5; (cd server && go run ./cmd/loadtest -url http://localhost:8099 $(LOADTEST_FLAGS)); status=$$?; kill $$pid; exit $$status
+
+drill: ## Redeploy and crash drill against a throwaway database
+	scripts/drill-redeploy.sh
+
+backup: ## Dump DATABASE_URL to backups/
+	scripts/backup.sh

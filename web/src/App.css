@@ -1397,3 +1397,46 @@ button.primary.danger {
     display: none;
   }
 }
+
+/* ---------- about ---------- */
+
+.about {
+  max-width: 760px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.about h1 {
+  margin: 0 0 16px;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+
+.about h2 {
+  margin: 28px 0 8px;
+  font-size: 17px;
+}
+
+.about p,
+.about li {
+  color: #c9d3dc;
+}
+
+.about ul {
+  padding-left: 20px;
+}
+
+.about li + li {
+  margin-top: 8px;
+}
+
+.callout {
+  padding: 14px 16px;
+  border: 1px solid rgba(245, 185, 66, 0.4);
+  border-radius: 10px;
+  background: rgba(245, 185, 66, 0.08);
+}
+
+.footer a {
+  color: var(--text);
+}

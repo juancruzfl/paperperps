@@ -155,3 +155,24 @@ func (e *Engine) snapshot(ctx context.Context, dirtyOnly bool) {
 		r.a.dirty = false
 	}
 }
+
+// SnapshotRetention is how long equity snapshots are kept: the PnL chart shows 30 days and
+// the longest leaderboard window is 30 days.
+const SnapshotRetention = 35 * 24 * time.Hour
+
+// pruneSnapshots deletes snapshots past the retention period, except each account's
+// latest one before the cutoff. That one is still the baseline of an account that has been
+// flat (and so not snapshotted) since then.
+func (e *Engine) pruneSnapshots(ctx context.Context) {
+	cutoff := e.now().Add(-SnapshotRetention)
+	tag, err := e.pool.Exec(ctx, `
+		DELETE FROM equity_snapshots s
+		WHERE s.ts < $1 AND s.ts < (
+			SELECT max(k.ts) FROM equity_snapshots k WHERE k.account_id = s.account_id AND k.ts < $1)`, cutoff)
+	if err != nil {
+		slog.Error("engine: prune equity snapshots", "err", err)
+		return
+	}
+	e.lastPrune = e.now()
+	slog.Info("pruned equity snapshots", "deleted", tag.RowsAffected(), "older_than", cutoff)
+}

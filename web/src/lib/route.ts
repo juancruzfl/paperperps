@@ -20,10 +20,12 @@ function coinFromPath(): string {
   return m ? decodeURIComponent(m[1]) : DEFAULT_COIN
 }
 
-export type Page = 'trade' | 'leaderboard'
+export type Page = 'trade' | 'leaderboard' | 'about'
 
 function pageFromPath(): Page {
-  return location.pathname.startsWith('/leaderboard') ? 'leaderboard' : 'trade'
+  if (location.pathname.startsWith('/leaderboard')) return 'leaderboard'
+  if (location.pathname.startsWith('/about')) return 'about'
+  return 'trade'
 }
 
 /** The current page, and a function to go to another. */
@@ -31,7 +33,7 @@ export function usePage(): [Page, (page: Page) => void] {
   const page = useSyncExternalStore(subscribe, pageFromPath)
   const go = useCallback((next: Page) => {
     if (pageFromPath() === 'trade') lastCoin = coinFromPath() // to come back to it
-    const path = next === 'leaderboard' ? '/leaderboard' : `/trade/${encodeURIComponent(lastCoin)}`
+    const path = next === 'trade' ? `/trade/${encodeURIComponent(lastCoin)}` : `/${next}`
     if (location.pathname !== path) history.pushState(null, '', path)
     for (const l of listeners) l()
     window.scrollTo(0, 0)

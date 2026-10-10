@@ -596,6 +596,26 @@ limits, empty/error states, mobile layout.
 Load test (many accounts × resting orders), restart/redeploy recovery (advisory lock
 handoff, idempotent funding), monitoring/alerts on upstream staleness, Postgres backups,
 and disclaimer copy.
+*Status (2026-10-09): done locally; production deployment deferred.* Details in
+[operations.md](operations.md).
+- **Load test** (`make loadtest`): 300 accounts, 6,000 resting orders, 300 websocket
+  clients, 20 market orders/s, with no errors or dropped clients.
+  - The limit is ~100 orders/s, from one Postgres commit per engine command.
+  - `synchronous_commit=off` measured ~270/s; it's documented as an option, not the
+    default.
+- **Drill** (`make drill`): standby passes `/healthz` and refuses orders; graceful handover
+  in 2s, crash takeover in 3s; state intact and trading works afterwards.
+  - Added TCP keepalives on the lock session, so a vanished host releases the lock in
+    ~25s instead of ~2h.
+- **Monitoring:**
+  - `/api/health` returns 503 when the database or price feed is down, with feed and
+    engine details.
+  - `alert=market_data_stale` ERROR logs, and a runbook.
+- **Backups:** `make backup` (pg_dump with a readability check); restore round trip
+  verified. Equity snapshots are pruned after 35 days, keeping each account's baseline.
+- **Disclaimer:** `/about` ("How it works") covers paper money, no affiliation, not
+  advice, the fill rules, fees, funding, liquidation, the leaderboard and privacy. The
+  footer links to it.
 
 ---
 

@@ -72,6 +72,7 @@ func New(d Deps) http.Handler {
 		})
 	})
 
+	mux.HandleFunc("GET /api/health", handleHealth(d))
 	mux.HandleFunc("GET /api/markets", handleMarkets(d.Market))
 	mux.HandleFunc("GET /api/markets/{coin}/candles", handleCandles(d.Market, d.Candles))
 	mux.HandleFunc("GET /ws", handleWS(d.Hub, d.Accounts.Authenticate))
@@ -148,4 +149,37 @@ func logRequests(next http.Handler) http.Handler {
 		}
 		slog.Info("http request", "method", r.Method, "path", r.URL.Path, "status", rec.status, "duration", time.Since(start))
 	})
+}
+
+// handleHealth is for uptime monitors and people: 200 when the database is reachable and
+// prices are live, 503 otherwise, with details either way. Unlike /healthz (which Railway
+// uses to gate deploys) it fails when the Hyperliquid feed is down, because then nobody
+// can trade.
+func handleHealth(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		dbErr := d.Pool.Ping(ctx)
+		feed := d.Market.Health()
+		res := map[string]any{
+			"version":  d.Config.Version,
+			"database": dbErr == nil,
+			"feed":     feed,
+			"engine":   d.Engine.Stats(ctx),
+		}
+		problems := []string{}
+		if dbErr != nil {
+			problems = append(problems, "database unreachable")
+		}
+		if !feed.Healthy(market.StaleAlertAfter) {
+			problems = append(problems, "market data stale")
+		}
+		res["ok"] = len(problems) == 0
+		res["problems"] = problems
+		status := http.StatusOK
+		if len(problems) > 0 {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, res)
+	}
 }

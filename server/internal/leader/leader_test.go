@@ -76,3 +76,23 @@ func TestWatchReportsLostConnection(t *testing.T) {
 		t.Fatal("Watch did not notice the lost connection")
 	}
 }
+
+func TestLockSessionDetectsDeadPeersQuickly(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	ctx := context.Background()
+	l, err := Acquire(ctx, url, 42_4244, 50*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Release(ctx)
+	var idle string
+	if err := l.conn.QueryRow(ctx, "SHOW tcp_keepalives_idle").Scan(&idle); err != nil {
+		t.Fatal(err)
+	}
+	if idle != "10" {
+		t.Errorf("tcp_keepalives_idle = %s, want 10", idle)
+	}
+}

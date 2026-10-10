@@ -219,3 +219,38 @@ func TestTradesSnapshotIsEmptyListNotNull(t *testing.T) {
 		t.Errorf("snapshot = %#v, want empty non-nil slice", snap)
 	}
 }
+
+func TestFeedHealth(t *testing.T) {
+	s, _, now := newTestService(t)
+	if h := s.Health(); h.Healthy(StaleAlertAfter) || h.LastMessageAge != -1 || h.Connected {
+		t.Fatalf("before connecting: %+v", h)
+	}
+
+	s.OnConnect()
+	s.OnAssetCtx(hyperliquid.ActiveAssetCtx{Coin: "BTC", Ctx: hyperliquid.AssetCtx{MarkPx: d("1")}})
+	s.OnAssetCtx(hyperliquid.ActiveAssetCtx{Coin: "SOL", Ctx: hyperliquid.AssetCtx{MarkPx: d("1")}})
+	if h := s.Health(); !h.Healthy(StaleAlertAfter) || h.Markets != 2 {
+		t.Fatalf("live feed: %+v", h)
+	}
+	s.watchFeed()
+	if s.alerting {
+		t.Error("alerting on a healthy feed")
+	}
+
+	*now = now.Add(61 * time.Second)
+	h := s.Health()
+	if h.Healthy(StaleAlertAfter) || len(h.StaleMarkets) != 2 || h.LastMessageAge < 61 {
+		t.Fatalf("quiet feed: %+v", h)
+	}
+	s.watchFeed()
+	if !s.alerting {
+		t.Error("no alert on a stale feed")
+	}
+
+	s.OnAssetCtx(hyperliquid.ActiveAssetCtx{Coin: "BTC", Ctx: hyperliquid.AssetCtx{MarkPx: d("1")}})
+	s.OnAssetCtx(hyperliquid.ActiveAssetCtx{Coin: "SOL", Ctx: hyperliquid.AssetCtx{MarkPx: d("1")}})
+	s.watchFeed()
+	if s.alerting {
+		t.Error("alert not cleared after recovery")
+	}
+}

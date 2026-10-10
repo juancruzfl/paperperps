@@ -102,7 +102,9 @@ type Service struct {
 	staleAfter time.Duration
 	now        func() time.Time
 
-	observer atomic.Pointer[Observer]
+	observer    atomic.Pointer[Observer]
+	lastMessage atomic.Int64 // unix nanos of the last message from Hyperliquid
+	alerting    bool         // a stale-feed alert is active (Run goroutine only)
 
 	mu        sync.RWMutex
 	connected bool
@@ -160,6 +162,7 @@ func (s *Service) Run(ctx context.Context, wsURL string) {
 			return
 		case <-tickers.C:
 			s.pub.Publish(TopicMarkets, s.Tickers())
+			s.watchFeed()
 		case <-refresh.C:
 			if err := s.LoadMeta(ctx); err != nil {
 				slog.Warn("refresh market metadata", "err", err)
@@ -329,6 +332,59 @@ func (s *Service) Snapshot(topic string) (any, bool) {
 
 // --- hyperliquid.Handler ---
 
+// FeedHealth describes the upstream feed, for monitoring.
+type FeedHealth struct {
+	Connected      bool     `json:"connected"`
+	LastMessageAge float64  `json:"lastMessageAgeSeconds"` // -1 before the first message
+	StaleMarkets   []string `json:"staleMarkets"`
+	Markets        int      `json:"markets"`
+}
+
+// Healthy reports whether prices are live: connected, recent data, no stale market.
+func (h FeedHealth) Healthy(maxAge time.Duration) bool {
+	return h.Connected && h.LastMessageAge >= 0 && h.LastMessageAge < maxAge.Seconds() && len(h.StaleMarkets) == 0
+}
+
+func (s *Service) Health() FeedHealth {
+	h := FeedHealth{LastMessageAge: -1, StaleMarkets: []string{}}
+	if last := s.lastMessage.Load(); last > 0 {
+		h.LastMessageAge = s.now().Sub(time.Unix(0, last)).Seconds()
+	}
+	tickers := s.Tickers()
+	h.Markets = len(tickers)
+	for _, t := range tickers {
+		if t.Stale {
+			h.StaleMarkets = append(h.StaleMarkets, t.Coin)
+		}
+	}
+	s.mu.RLock()
+	h.Connected = s.connected
+	s.mu.RUnlock()
+	return h
+}
+
+// watchFeed logs an ERROR line with alert=market_data_stale when the feed goes bad, and an
+// INFO line when it recovers, so log-based alerting can page someone.
+func (s *Service) watchFeed() {
+	h := s.Health()
+	healthy := h.Healthy(StaleAlertAfter)
+	switch {
+	case !healthy && !s.alerting:
+		s.alerting = true
+		slog.Error("market data stale: trading on affected markets is halted",
+			"alert", "market_data_stale", "connected", h.Connected,
+			"last_message_age_s", h.LastMessageAge, "stale_markets", h.StaleMarkets)
+	case healthy && s.alerting:
+		s.alerting = false
+		slog.Info("market data recovered", "alert", "market_data_stale_resolved")
+	}
+}
+
+// StaleAlertAfter is how long the feed may go quiet before it counts as unhealthy.
+const StaleAlertAfter = 60 * time.Second
+
+func (s *Service) touch() { s.lastMessage.Store(s.now().UnixNano()) }
+
 func (s *Service) OnConnect() {
 	s.mu.Lock()
 	s.connected = true
@@ -342,6 +398,7 @@ func (s *Service) OnDisconnect(error) {
 }
 
 func (s *Service) OnBook(b hyperliquid.L2Book) {
+	s.touch()
 	book := Book{Coin: b.Coin, Time: b.Time, Bids: b.Bids(), Asks: b.Asks()}
 	s.mu.Lock()
 	st, ok := s.states[b.Coin]
@@ -358,6 +415,7 @@ func (s *Service) OnBook(b hyperliquid.L2Book) {
 // OnTrades stores and publishes trades not seen before. Hyperliquid replays recent trades
 // after every (re)subscribe, so duplicates are expected.
 func (s *Service) OnTrades(trades []hyperliquid.Trade) {
+	s.touch()
 	if len(trades) == 0 {
 		return
 	}
@@ -398,6 +456,7 @@ func (s *Service) OnTrades(trades []hyperliquid.Trade) {
 }
 
 func (s *Service) OnAssetCtx(c hyperliquid.ActiveAssetCtx) {
+	s.touch()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if st, ok := s.states[c.Coin]; ok {
