@@ -130,3 +130,23 @@ describe('trigger direction mirrors the engine', () => {
     expect(triggerDirection('take_profit_limit', 'buy')).toBe('≤') // take-profit on a short
   })
 })
+
+describe('chart lines', () => {
+  it('marks the position, its liquidation price and orders on the coin', async () => {
+    const { chartLines } = await import('./chartLines')
+    const me = {
+      balance: '985.24',
+      positions: [{ coin: 'BTC', size: '0.4', entryPx: '82000', leverage: 40, marginMode: 'cross', isolatedMargin: '0' }],
+      openOrders: [
+        { id: 'a', coin: 'BTC', side: 'sell', type: 'take_profit_market', px: null, triggerPx: '85000', sz: '0.4', filledSz: '0', reduceOnly: true, parentOrderId: null, status: 'open' },
+        { id: 'b', coin: 'BTC', side: 'buy', type: 'limit', px: '80000', triggerPx: null, sz: '0.01', filledSz: '0', reduceOnly: false, parentOrderId: null, status: 'open' },
+        { id: 'c', coin: 'ETH', side: 'buy', type: 'limit', px: '2000', triggerPx: null, sz: '1', filledSz: '0', reduceOnly: false, parentOrderId: null, status: 'open' },
+      ],
+    } as unknown as import('./types').Me
+    const tickers = [{ coin: 'BTC', markPx: '81995', szDecimals: 5, maxLeverage: 40 }] as unknown as import('./types').Ticker[]
+    const lines = chartLines(me, tickers, 'BTC')
+    expect(lines.map((l) => l.title)).toEqual(['Long 0.4', 'Liq.', 'TP', 'Buy 0.01'])
+    expect(lines[1].price).toBe(80544) // ≈ 80,543.70, rounded to BTC's whole-dollar ticks
+    expect(chartLines(null, tickers, 'BTC')).toEqual([])
+  })
+})

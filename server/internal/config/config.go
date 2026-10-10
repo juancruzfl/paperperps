@@ -36,6 +36,10 @@ type Config struct {
 
 	HLNetwork string
 	Markets   []string
+	// HLInfoURLOverride and HLWSURLOverride point the server at another Hyperliquid-
+	// compatible API, e.g. the fake one the browser tests use. Empty: use HLNetwork's.
+	HLInfoURLOverride string
+	HLWSURLOverride   string
 
 	StartingBalance decimal.Decimal
 	TakerFeeRate    decimal.Decimal
@@ -51,13 +55,15 @@ type Config struct {
 func Load() (Config, error) {
 	var errs []error
 	c := Config{
-		Port:            env("PORT", "8080"),
-		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		WebDir:          env("WEB_DIR", ""),
-		Version:         env("RAILWAY_GIT_COMMIT_SHA", "dev"),
-		HLNetwork:       strings.ToLower(env("HL_NETWORK", NetworkMainnet)),
-		Markets:         parseList(env("MARKETS", DefaultMarkets)),
-		LiquidationMode: strings.ToLower(env("LIQUIDATION_MODE", LiquidationForfeit)),
+		Port:              env("PORT", "8080"),
+		DatabaseURL:       os.Getenv("DATABASE_URL"),
+		WebDir:            env("WEB_DIR", ""),
+		Version:           env("RAILWAY_GIT_COMMIT_SHA", "dev"),
+		HLNetwork:         strings.ToLower(env("HL_NETWORK", NetworkMainnet)),
+		Markets:           parseList(env("MARKETS", DefaultMarkets)),
+		HLInfoURLOverride: env("HL_INFO_URL", ""),
+		HLWSURLOverride:   env("HL_WS_URL", ""),
+		LiquidationMode:   strings.ToLower(env("LIQUIDATION_MODE", LiquidationForfeit)),
 	}
 
 	c.StartingBalance = parseDecimal("STARTING_BALANCE", "1000", &errs)
@@ -84,6 +90,9 @@ func Load() (Config, error) {
 
 // HLInfoURL is the Hyperliquid REST info endpoint for the configured network.
 func (c Config) HLInfoURL() string {
+	if c.HLInfoURLOverride != "" {
+		return c.HLInfoURLOverride
+	}
 	if c.HLNetwork == NetworkMainnet {
 		return "https://api.hyperliquid.xyz/info"
 	}
@@ -92,6 +101,9 @@ func (c Config) HLInfoURL() string {
 
 // HLWebsocketURL is the Hyperliquid websocket endpoint for the configured network.
 func (c Config) HLWebsocketURL() string {
+	if c.HLWSURLOverride != "" {
+		return c.HLWSURLOverride
+	}
 	if c.HLNetwork == NetworkMainnet {
 		return "wss://api.hyperliquid.xyz/ws"
 	}

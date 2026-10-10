@@ -33,7 +33,7 @@ export function MarketSelector({ coin, tickers, onSelect }: Props) {
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
     return tickers
-      .filter((t) => t.coin.toLowerCase().includes(q))
+      .filter((t) => !t.closeOnly && t.coin.toLowerCase().includes(q))
       .sort((a, b) => Number(b.dayNtlVlm) - Number(a.dayNtlVlm))
   }, [tickers, query])
 

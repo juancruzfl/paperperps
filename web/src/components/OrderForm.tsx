@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api, ApiError, type NewOrder } from '../lib/api'
 import { describeFill, refreshAccount, useAccount } from '../lib/account'
 import { formatNumber, formatUsd, pxDecimals } from '../lib/format'
 import { coinStates, maintenanceRate, maxOrderSize, projectedLiquidationPrice, summarize, type CoinState } from '../lib/margin'
 import { useBook, useTickers } from '../lib/market'
 import { triggerDirection, typeLabel } from '../lib/orders'
+import { onPricePick } from '../lib/ticket'
 import { toast } from '../lib/toasts'
 import type { OrderType, Side, Ticker, TIF } from '../lib/types'
 import { LeverageControl } from './LeverageControl'
@@ -49,7 +50,7 @@ export function OrderForm({ ticker }: { ticker: Ticker | undefined }) {
   const [trigger, setTrigger] = useState('')
   const [triggerLimit, setTriggerLimit] = useState(false)
   const [tif, setTif] = useState<TIF>('gtc')
-  const [reduceOnly, setReduceOnly] = useState(false)
+  const [reduceOnlyChoice, setReduceOnly] = useState(false)
   const [withTpsl, setWithTpsl] = useState(false)
   const [tp, setTp] = useState('')
   const [sl, setSl] = useState('')
@@ -63,7 +64,25 @@ export function OrderForm({ ticker }: { ticker: Ticker | undefined }) {
   const mid = book?.bids[0] && book?.asks[0] ? (Number(book.bids[0].px) + Number(book.asks[0].px)) / 2 : Number(ticker?.markPx ?? 0)
   const pxDec = pxDecimals(mid, szDecimals)
   const buy = side === 'buy'
+  // A market that's no longer listed only accepts orders that close positions.
+  const closeOnly = !!ticker?.closeOnly
+  const reduceOnly = reduceOnlyChoice || closeOnly
   const canAttach = (tab === 'market' || tab === 'limit') && !reduceOnly
+
+  // Clicking an order book level fills in the price: the trigger on stop/take tabs, the
+  // limit price otherwise (switching a market ticket to limit).
+  useEffect(
+    () =>
+      onPricePick((px) => {
+        if (tab === 'stop' || tab === 'take') {
+          setTrigger(px)
+          return
+        }
+        if (tab === 'market') setTab('limit')
+        setPrice(px)
+      }),
+    [tab],
+  )
 
   const position = me?.positions.find((p) => p.coin === coin)
   const leverage = position?.leverage ?? Math.min(DEFAULT_LEVERAGE, ticker?.maxLeverage ?? DEFAULT_LEVERAGE)
@@ -213,6 +232,10 @@ export function OrderForm({ ticker }: { ticker: Ticker | undefined }) {
         </button>
       </div>
 
+      {closeOnly && (
+        <p className="notice-inline">{coin} is no longer listed. You can only close your position here.</p>
+      )}
+
       <div className="form-row between small">
         <span className="muted">Available</span>
         <span className="num">{summary ? usd(summary.available) : '—'}</span>
@@ -254,7 +277,7 @@ export function OrderForm({ ticker }: { ticker: Ticker | undefined }) {
 
       <div className="options">
         <label className="check">
-          <input type="checkbox" checked={reduceOnly} onChange={(e) => setReduceOnly(e.target.checked)} />
+          <input type="checkbox" checked={reduceOnly} disabled={closeOnly} onChange={(e) => setReduceOnly(e.target.checked)} />
           Reduce only
         </label>
         {canAttach && (

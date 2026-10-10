@@ -12,6 +12,7 @@ export type Ticker = {
   funding: string // hourly rate
   openInterest: string // coin units
   stale: boolean
+  closeOnly?: boolean // no longer listed; held positions can only be closed
 }
 
 export type Level = { px: string; sz: string; n: number }

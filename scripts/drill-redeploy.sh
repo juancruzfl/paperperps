@@ -11,7 +11,10 @@ set -euo pipefail
 
 ADMIN_URL=${ADMIN_URL:-postgres://paperperps:paperperps@localhost:5433/paperperps?sslmode=disable}
 DB=paperperps_drill_$$
-DB_URL=${ADMIN_URL/\/paperperps\?/\/$DB?}
+# Same server and credentials as ADMIN_URL, different database name.
+DB_URL="${ADMIN_URL%%\?*}"
+DB_URL="${DB_URL%/*}/$DB"
+[[ $ADMIN_URL == *\?* ]] && DB_URL="$DB_URL?${ADMIN_URL#*\?}"
 BIN=$(mktemp -d)/paperperps
 LOGS=$(mktemp -d)
 PIDS=()

@@ -188,6 +188,11 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
     next coin by volume takes its place.
   - Review it manually (e.g. monthly). A coin removed from the list becomes **close-only**:
     no new positions, reduce-only orders allowed. It is hidden once nobody holds it.
+    *As built (2026-10-10):*
+    - At startup, coins someone still holds that aren't in `MARKETS` stay subscribed
+      with `closeOnly: true`, so their positions keep live marks, liquidation and funding.
+    - Only reduce-only orders are accepted, and the market list hides them.
+    - They drop out at the first restart after the last holder closes.
   - **Initial list (from mainnet 24h volume on 2026-10-09):** `BTC, ETH, HYPE, NEAR, SOL,
     PUMP, VVV, WLD, LIT, SUI, ZRO, DOGE, MET, PONS, ONDO, ADA, TAO, FARTCOIN, XPL, XMR`.
     ZEC, XRP, ENA, STRK and UNI ranked in the top 20 on mainnet but aren't listed on

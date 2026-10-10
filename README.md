@@ -14,6 +14,7 @@ touches a chain.
 server/   Go backend: API, websocket, trading engine; serves the built frontend
   cmd/paperperps/        entry point
   cmd/loadtest/          load generator for a running server
+  cmd/fakehl/            fake Hyperliquid API with movable prices, for browser tests
   internal/config/       env configuration
   internal/db/           Postgres pool + embedded goose migrations
   internal/leader/       advisory lock so only one engine runs
@@ -26,7 +27,7 @@ server/   Go backend: API, websocket, trading engine; serves the built frontend
   internal/ratelimit/    per-IP and per-account token buckets
   internal/dbtest/       throwaway databases for tests
   internal/httpapi/      HTTP routes, /ws, health check, SPA serving
-web/      React + TypeScript + Vite frontend
+web/      React + TypeScript + Vite frontend (e2e/: Playwright smoke tests)
 docs/     plan and deploy docs
 ```
 
@@ -47,6 +48,7 @@ make test      # go vet + go test (incl. DB integration tests) + web lint/build
 make docker    # build the production image
 make loadtest  # load an isolated instance on :8099
 make drill     # redeploy + crash drill against a throwaway database
+make e2e       # browser smoke tests (Playwright) against a fake Hyperliquid
 make help      # all targets
 ```
 

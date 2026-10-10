@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AccountMenu, RecoveryNotice } from './components/AccountMenu'
 import { AccountPanel } from './components/AccountPanel'
 import { AboutPage } from './components/AboutPage'
@@ -10,7 +10,8 @@ import { OrderForm } from './components/OrderForm'
 import { StatsBar } from './components/StatsBar'
 import { Toasts } from './components/Toasts'
 import { Trades } from './components/Trades'
-import { bootAccount } from './lib/account'
+import { bootAccount, useAccount } from './lib/account'
+import { chartLines } from './lib/chartLines'
 import { fetchStatus, useBook, useConnection, useTickers, useTrades } from './lib/market'
 import { DEFAULT_COIN, useCoin, usePage } from './lib/route'
 import type { Status } from './lib/types'
@@ -23,6 +24,8 @@ function App() {
   const [page, setPage] = usePage()
   const tickers = useTickers()
   const ticker = tickers.find((t) => t.coin === coin)
+  const me = useAccount((s) => s.me)
+  const lines = useMemo(() => chartLines(me, tickers, coin), [me, tickers, coin])
   const [status, setStatus] = useState<Status | null>(null)
 
   useEffect(() => {
@@ -99,7 +102,7 @@ function App() {
       <main className="terminal">
         <section className="panel chart-panel" aria-label="Chart">
           {ticker ? (
-            <Chart coin={coin} szDecimals={ticker.szDecimals} refPx={Number(ticker.markPx)} />
+            <Chart coin={coin} szDecimals={ticker.szDecimals} refPx={Number(ticker.markPx)} lines={lines} />
           ) : (
             <div className="panel-empty">Loading chart…</div>
           )}

@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
@@ -7,6 +8,8 @@ const server = 'http://localhost:8080'
 
 export default defineConfig({
   plugins: [react()],
+  // Unit tests live next to the code; e2e/ is Playwright's (npm run e2e).
+  test: { include: ['src/**/*.test.ts'] },
   server: {
     proxy: {
       '/api': server,

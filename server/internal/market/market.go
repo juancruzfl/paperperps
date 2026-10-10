@@ -67,6 +67,10 @@ type Ticker struct {
 	// Stale is true when the feed is down or this market hasn't updated recently. The
 	// engine must not fill or liquidate against stale prices.
 	Stale bool `json:"stale"`
+	// CloseOnly marks a coin that is no longer offered but that someone still holds. It
+	// keeps live prices so positions can be valued, liquidated and closed, and only
+	// reduce-only orders are accepted.
+	CloseOnly bool `json:"closeOnly,omitempty"`
 }
 
 // Book is an order book snapshot as sent to clients.
@@ -78,18 +82,21 @@ type Book struct {
 }
 
 type state struct {
-	meta    hyperliquid.AssetMeta
-	hasMeta bool
-	ctx     hyperliquid.AssetCtx
-	ctxAt   time.Time
-	book    *Book
-	trades  []hyperliquid.Trade // newest first
-	seen    map[int64]struct{}
-	seenLog []int64 // insertion order, to evict from seen
+	closeOnly bool
+	meta      hyperliquid.AssetMeta
+	hasMeta   bool
+	ctx       hyperliquid.AssetCtx
+	ctxAt     time.Time
+	book      *Book
+	trades    []hyperliquid.Trade // newest first
+	seen      map[int64]struct{}
+	seenLog   []int64 // insertion order, to evict from seen
 }
 
 type Options struct {
-	Markets    []string
+	Markets []string
+	// CloseOnly lists coins that aren't in Markets anymore but still have open positions.
+	CloseOnly  []string
 	Info       Info
 	Publisher  Publisher
 	StaleAfter time.Duration    // default 30s
@@ -129,6 +136,12 @@ func New(o Options) *Service {
 	for _, coin := range o.Markets {
 		s.order = append(s.order, coin)
 		s.states[coin] = &state{seen: map[int64]struct{}{}}
+	}
+	for _, coin := range o.CloseOnly {
+		if _, listed := s.states[coin]; !listed {
+			s.order = append(s.order, coin)
+			s.states[coin] = &state{seen: map[int64]struct{}{}, closeOnly: true}
+		}
 	}
 	return s
 }
@@ -300,6 +313,7 @@ func (s *Service) ticker(coin string, st *state, now time.Time) Ticker {
 		Funding:      st.ctx.Funding,
 		OpenInterest: st.ctx.OpenInterest,
 		Stale:        !s.connected || now.Sub(st.ctxAt) > s.staleAfter,
+		CloseOnly:    st.closeOnly,
 	}
 }
 

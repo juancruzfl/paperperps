@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -57,6 +58,23 @@ func run() error {
 		return err
 	}
 
+	// Coins dropped from MARKETS that people still hold stay tracked as close-only, so those
+	// positions can still be valued, liquidated and closed (docs/plan.md §4.1).
+	store := accounts.NewStore(pool, cfg.StartingBalance)
+	held, err := store.OpenPositionCoins(ctx)
+	if err != nil {
+		return err
+	}
+	var closeOnly []string
+	for _, coin := range held {
+		if !slices.Contains(cfg.Markets, coin) {
+			closeOnly = append(closeOnly, coin)
+		}
+	}
+	if len(closeOnly) > 0 {
+		slog.Warn("markets no longer listed but still held: close-only", "coins", closeOnly)
+	}
+
 	// Market data is read-only, so it runs on every instance, not only the engine leader.
 	info := hyperliquid.NewInfoClient(cfg.HLInfoURL())
 	var markets *market.Service
@@ -68,7 +86,7 @@ func run() error {
 		}
 		return markets.Snapshot(topic)
 	})
-	markets = market.New(market.Options{Markets: cfg.Markets, Info: info, Publisher: h})
+	markets = market.New(market.Options{Markets: cfg.Markets, CloseOnly: closeOnly, Info: info, Publisher: h})
 	go markets.Run(ctx, cfg.HLWebsocketURL())
 
 	eng := engine.New(pool, markets, h, engine.Config{
@@ -86,7 +104,7 @@ func run() error {
 		Handler: httpapi.New(httpapi.Deps{
 			Config:   cfg,
 			Pool:     pool,
-			Accounts: accounts.NewStore(pool, cfg.StartingBalance),
+			Accounts: store,
 			Engine:   eng,
 			Market:   markets,
 			Candles:  market.NewCandles(info, 10*time.Second),

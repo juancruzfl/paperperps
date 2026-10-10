@@ -110,6 +110,7 @@ on the same machine.
 ## Useful commands
 
 ```sh
+make e2e        # browser smoke tests: full stack + fake Hyperliquid + Playwright (also in CI)
 make loadtest   # load an isolated instance (see server/cmd/loadtest for flags)
 make drill      # redeploy + crash drill against a throwaway database
 make backup     # pg_dump with DATABASE_URL
@@ -121,5 +122,5 @@ make backup     # pg_dump with DATABASE_URL
 |---|---|---|
 | `HL_NETWORK` | `mainnet` (default) or `testnet` market data | Restart needed. Positions keep their entry prices, so expect a PnL jump. |
 | `LIQUIDATION_MODE` | `forfeit` (default) or `market` | Applies to the next liquidation. |
-| `MARKETS` | Comma-separated coins | A removed coin's open positions stay but the market disappears from the UI; close them first. |
+| `MARKETS` | Comma-separated coins | A removed coin that people still hold becomes close-only (reduce-only orders, hidden from the market list) until it's no longer held at a restart. |
 | `RESET_COOLDOWN`, `LEADERBOARD_MIN_TRADES`, `LEADERBOARD_MIN_AGE` | Rules | Restart needed. |

@@ -81,6 +81,7 @@ function Positions({ onSelectCoin }: { onSelectCoin: (coin: string) => void }) {
         side: size > 0 ? 'sell' : 'buy',
         type: 'market',
         sz: Math.abs(size).toFixed(szDecimals),
+        reduceOnly: true, // also works on markets that are no longer listed (close-only)
       })
       if (res.fill) toast(`Closed: ${describeFill(res.fill)}`, 'success')
       await refreshAccount()

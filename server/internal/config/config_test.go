@@ -54,6 +54,19 @@ func TestLoadTestnetAndMarkets(t *testing.T) {
 	}
 }
 
+func TestURLOverrides(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("HL_INFO_URL", "http://localhost:9999/info")
+	t.Setenv("HL_WS_URL", "ws://localhost:9999/ws")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.HLInfoURL() != "http://localhost:9999/info" || c.HLWebsocketURL() != "ws://localhost:9999/ws" {
+		t.Errorf("overrides ignored: %s %s", c.HLInfoURL(), c.HLWebsocketURL())
+	}
+}
+
 func TestLoadReportsAllErrors(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("HL_NETWORK", "devnet")

@@ -376,3 +376,15 @@ func (s *Store) Equity(ctx context.Context, id uuid.UUID, now time.Time) ([]Equi
 		return p, err
 	})
 }
+
+// OpenPositionCoins lists every coin anyone holds a position in.
+func (s *Store) OpenPositionCoins(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT p.coin FROM positions p
+		JOIN accounts a ON a.id = p.account_id AND a.current_run_id = p.run_id
+		WHERE p.size <> 0 ORDER BY p.coin`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}

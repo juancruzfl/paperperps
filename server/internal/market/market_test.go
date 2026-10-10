@@ -254,3 +254,21 @@ func TestFeedHealth(t *testing.T) {
 		t.Error("alert not cleared after recovery")
 	}
 }
+
+func TestCloseOnlyCoinsAreTracked(t *testing.T) {
+	info := &fakeInfo{meta: hyperliquid.MetaAndAssetCtxs{
+		Meta: hyperliquid.Meta{Universe: []hyperliquid.AssetMeta{{Name: "BTC", SzDecimals: 5, MaxLeverage: 40}, {Name: "ZEC", SzDecimals: 2, MaxLeverage: 10}}},
+		Ctxs: []hyperliquid.AssetCtx{{MarkPx: d("1")}, {MarkPx: d("2")}},
+	}}
+	s := New(Options{Markets: []string{"BTC"}, CloseOnly: []string{"ZEC", "BTC"}, Info: info, Publisher: &fakePub{}})
+	if err := s.LoadMeta(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	tk := s.Tickers()
+	if len(tk) != 2 || tk[0].CloseOnly || !tk[1].CloseOnly || tk[1].Coin != "ZEC" {
+		t.Fatalf("tickers = %+v", tk)
+	}
+	if subs := s.subscriptions(); len(subs) != 6 {
+		t.Errorf("close-only coin needs live prices too: %d subscriptions", len(subs))
+	}
+}

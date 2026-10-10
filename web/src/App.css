@@ -1440,3 +1440,13 @@ button.primary.danger {
 .footer a {
   color: var(--text);
 }
+
+.book-row.clickable {
+  cursor: pointer;
+}
+
+.book-row.clickable:hover,
+.book-row.clickable:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.05);
+}

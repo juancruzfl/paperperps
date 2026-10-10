@@ -55,6 +55,11 @@ type Config struct {
 	ResetCooldown time.Duration
 	// SnapshotInterval is how often equity snapshots are taken. Default 5m.
 	SnapshotInterval time.Duration
+	// MaxOpenOrders caps an account's limit orders on the book, MaxTriggerOrders its
+	// untriggered stop and take-profit orders. Every resting order is checked on each
+	// market update, so unbounded counts would let one account slow everyone down.
+	MaxOpenOrders    int // default 100
+	MaxTriggerOrders int // default 50
 }
 
 const (
@@ -187,6 +192,12 @@ func New(pool *pgxpool.Pool, md MarketData, pub Publisher, cfg Config) *Engine {
 	}
 	if cfg.LiquidationMode == "" {
 		cfg.LiquidationMode = LiquidationForfeit
+	}
+	if cfg.MaxOpenOrders == 0 {
+		cfg.MaxOpenOrders = 100
+	}
+	if cfg.MaxTriggerOrders == 0 {
+		cfg.MaxTriggerOrders = 50
 	}
 	if cfg.SnapshotInterval == 0 {
 		cfg.SnapshotInterval = 5 * time.Minute

@@ -157,6 +157,9 @@ func (e *Engine) placeOrder(ctx context.Context, accountID uuid.UUID, req OrderR
 	if err != nil {
 		return OrderResult{}, err
 	}
+	if ticker.CloseOnly && !req.ReduceOnly {
+		return OrderResult{}, reject("close_only", "%s is no longer listed: you can only close your position (reduce-only orders)", req.Coin)
+	}
 	if err := ValidateSize(req.Sz, ticker.SzDecimals); err != nil {
 		return OrderResult{}, reject("invalid_size", "size %s", err)
 	}
@@ -249,6 +252,15 @@ func (e *Engine) placeOrder(ctx context.Context, accountID uuid.UUID, req OrderR
 		if err != nil {
 			return OrderResult{}, err
 		}
+	}
+	addResting, addTriggers := 0, len(children)
+	if IsTrigger(req.Type) {
+		addTriggers++
+	} else if limitPriced(req.Type) && tif != TIFIOC {
+		addResting++ // it may rest
+	}
+	if err := e.checkOrderCaps(a, addResting, addTriggers, nil); err != nil {
+		return OrderResult{}, err
 	}
 
 	// Trigger orders just wait. They hold no margin; it's checked when they fire.
@@ -513,6 +525,30 @@ func (e *Engine) unindex(o *accounts.Order) {
 func (e *Engine) forget(a *account, o *accounts.Order) {
 	delete(a.orders, o.ID)
 	e.unindex(o)
+}
+
+// checkOrderCaps rejects an action that would leave the account with more than the allowed
+// resting or trigger orders. leaving are orders the same action cancels.
+func (e *Engine) checkOrderCaps(a *account, addResting, addTriggers int, leaving []*accounts.Order) error {
+	resting, triggers := addResting, addTriggers
+	for _, o := range a.orders {
+		if slices.Contains(leaving, o) {
+			continue
+		}
+		switch {
+		case onBook(o):
+			resting++
+		case pendingTrigger(o):
+			triggers++
+		}
+	}
+	if addResting > 0 && resting > e.cfg.MaxOpenOrders {
+		return reject("too_many_orders", "you can have at most %d open limit orders; cancel some first", e.cfg.MaxOpenOrders)
+	}
+	if addTriggers > 0 && triggers > e.cfg.MaxTriggerOrders {
+		return reject("too_many_orders", "you can have at most %d stop and take-profit orders; cancel some first", e.cfg.MaxTriggerOrders)
+	}
+	return nil
 }
 
 // --- cancelling ---
@@ -919,6 +955,9 @@ func (e *Engine) setPositionTPSL(ctx context.Context, accountID uuid.UUID, coin 
 		if o.Coin == coin && o.ReduceOnly && pendingTrigger(o) && !limitPriced(o.Type) && a.active(o) {
 			replace = append(replace, o)
 		}
+	}
+	if err := e.checkOrderCaps(a, 0, len(orders), replace); err != nil {
+		return nil, err
 	}
 	if err := e.closeOrders(ctx, a, replace, "replaced by new position TP/SL"); err != nil {
 		return nil, err

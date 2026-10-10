@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { computeDepth, type DepthRow } from '../lib/book'
 import { formatNumber, formatPct, pxDecimals } from '../lib/format'
+import { pickPrice } from '../lib/ticket'
 import type { Book } from '../lib/types'
 
 const ROWS = 11
@@ -19,7 +20,17 @@ export function OrderBook({ book, szDecimals, coin }: Props) {
   const pxDec = pxDecimals(refPx, szDecimals)
 
   const row = (r: DepthRow, side: 'bid' | 'ask') => (
-    <div className={`book-row ${side}`} key={`${side}-${r.px}`}>
+    <div
+      className={`book-row ${side} clickable`}
+      key={`${side}-${r.px}`}
+      role="button"
+      tabIndex={0}
+      title="Use this price for a limit order"
+      onClick={() => pickPrice(r.px.toFixed(pxDec))}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') pickPrice(r.px.toFixed(pxDec))
+      }}
+    >
       <span
         className="depth"
         style={{ transform: `scaleX(${r.depth})` }}

@@ -56,3 +56,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t paperperps .
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [server, web]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: paperperps
+          POSTGRES_PASSWORD: paperperps
+          POSTGRES_DB: paperperps
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U paperperps"
+          --health-interval 2s --health-timeout 3s --health-retries 15
+    env:
+      ADMIN_URL: postgres://paperperps:paperperps@localhost:5432/paperperps?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - run: scripts/e2e.sh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: web/playwright-report

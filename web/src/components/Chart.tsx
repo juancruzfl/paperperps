@@ -3,6 +3,7 @@ import {
   ColorType,
   createChart,
   HistogramSeries,
+  LineStyle,
   TickMarkType,
   type IChartApi,
   type ISeriesApi,
@@ -11,6 +12,7 @@ import {
 } from 'lightweight-charts'
 import { useEffect, useRef, useState } from 'react'
 import { applyTrade, INTERVALS, toBar, type Bar, type Interval } from '../lib/candles'
+import type { PriceLine } from '../lib/chartLines'
 import { pxDecimals } from '../lib/format'
 import { socket, type ServerMessage } from '../lib/socket'
 import type { Candle, Trade } from '../lib/types'
@@ -77,9 +79,12 @@ type Props = {
   coin: string
   szDecimals: number
   refPx: number // any recent price, to pick the axis precision
+  lines?: PriceLine[] // position, liquidation and order prices to mark
 }
 
-export function Chart({ coin, szDecimals, refPx }: Props) {
+const LINE_STYLE = { solid: LineStyle.Solid, dashed: LineStyle.Dashed, dotted: LineStyle.Dotted }
+
+export function Chart({ coin, szDecimals, refPx, lines = [] }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candlesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -134,6 +139,24 @@ export function Chart({ coin, szDecimals, refPx }: Props) {
       volumeRef.current = null
     }
   }, [])
+
+  // Price lines are redrawn only when they actually change (they're recomputed every tick).
+  const linesKey = JSON.stringify(lines)
+  useEffect(() => {
+    const series = candlesRef.current
+    if (!series) return
+    const drawn = (JSON.parse(linesKey) as PriceLine[]).map((l) =>
+      series.createPriceLine({
+        price: l.price,
+        color: l.color,
+        title: l.title,
+        lineWidth: 1,
+        lineStyle: LINE_STYLE[l.style],
+        axisLabelVisible: true,
+      }),
+    )
+    return () => drawn.forEach((p) => series.removePriceLine(p))
+  }, [linesKey])
 
   // Axis precision follows the asset's price.
   const decimals = pxDecimals(refPx, szDecimals)

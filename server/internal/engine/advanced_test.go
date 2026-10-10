@@ -361,3 +361,50 @@ func TestTriggerAndReduceOnlyOrdersReserveNoMargin(t *testing.T) {
 	h.runRisk()
 	eq(t, "breakout filled", positionOf(h.load(id), "BTC").Size, "0.11")
 }
+
+func TestCloseOnlyMarketAcceptsOnlyReduceOnly(t *testing.T) {
+	h := newHarness(t)
+	id := h.newAccount()
+	h.submit(id, req(SideBuy, TypeMarket, "0.01"))
+
+	// BTC is dropped from the listed markets while the account still holds it.
+	h.md.mu.Lock()
+	tk := h.md.tickers["BTC"]
+	tk.CloseOnly = true
+	h.md.tickers["BTC"] = tk
+	h.md.mu.Unlock()
+
+	wantReject(t, h.submitErr(id, req(SideBuy, TypeMarket, "0.01")), "close_only")
+	wantReject(t, h.submitErr(id, req(SideSell, TypeLimit, "0.01").px("90000")), "close_only")
+	if _, err := h.eng.SetPositionTPSL(context.Background(), id, "BTC", decimal.NullDecimal{}, decimal.NewNullDecimal(d("80000"))); err != nil {
+		t.Errorf("a stop-loss on a close-only position should be allowed: %v", err)
+	}
+	h.submit(id, req(SideSell, TypeMarket, "0.01").reduceOnly())
+	eq(t, "closed", positionOf(h.load(id), "BTC").Size, "0")
+}
+
+func TestOrderCaps(t *testing.T) {
+	h := newHarness(t)
+	cfg := h.eng.cfg
+	cfg.MaxOpenOrders, cfg.MaxTriggerOrders = 2, 2
+	h.eng.cfg = cfg
+	id := h.newAccount()
+
+	h.submit(id, req(SideBuy, TypeLimit, "0.01").px("70000"))
+	h.submit(id, req(SideBuy, TypeLimit, "0.01").px("71000"))
+	wantReject(t, h.submitErr(id, req(SideBuy, TypeLimit, "0.01").px("72000")), "too_many_orders")
+	// Orders that can't rest don't count against the cap.
+	h.submit(id, req(SideBuy, TypeMarket, "0.01"))
+
+	h.submit(id, req(SideBuy, TypeStopMarket, "0.01").trigger("90000"))
+	wantReject(t, h.submitErr(id, req(SideBuy, TypeMarket, "0.01").tp("90000").sl("80000")), "too_many_orders")
+
+	// Replacing position TP/SL frees what it replaces.
+	ctx := context.Background()
+	if _, err := h.eng.SetPositionTPSL(ctx, id, "BTC", decimal.NullDecimal{}, decimal.NewNullDecimal(d("80000"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.eng.SetPositionTPSL(ctx, id, "BTC", decimal.NullDecimal{}, decimal.NewNullDecimal(d("79000"))); err != nil {
+		t.Errorf("replacing at the cap should work: %v", err)
+	}
+}
