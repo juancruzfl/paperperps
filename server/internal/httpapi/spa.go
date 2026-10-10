@@ -2,11 +2,19 @@ package httpapi
 
 import (
 	"io/fs"
+	"mime"
 	"net/http"
 	"os"
 	"path"
 	"strings"
 )
+
+func init() {
+	// Go's table doesn't know the web app manifest (web/public/site.webmanifest).
+	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
+		panic(err)
+	}
+}
 
 // spaHandler serves files from the built frontend in dir. Unknown paths get index.html so
 // client-side routes like /restore work on reload.

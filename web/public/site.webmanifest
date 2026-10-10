@@ -1,0 +1,14 @@
+{
+  "name": "PaperPerps",
+  "short_name": "PaperPerps",
+  "description": "Paper-trade perpetual futures on live market data. No login, no wallet, $1,000 to start.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
