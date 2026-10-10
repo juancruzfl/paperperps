@@ -293,8 +293,9 @@
       'account';
   }
 
-  .book-panel {
-    max-height: 520px;
+  /* Stacked layout: the panel grows to fit the whole book rather than clipping it. */
+  .book-panel .book-side {
+    flex: none;
   }
 
   .account-panel .table-wrap {
@@ -465,6 +466,15 @@
 
 .book-row.bid .px {
   color: var(--long);
+}
+
+/* Each side takes half the space left by the header and spread. When the panel is too
+   short for every level, the farthest prices are clipped and the best bid and ask stay
+   next to the spread, instead of the book spilling over the panel below. */
+.book-side {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .book-side.asks {
