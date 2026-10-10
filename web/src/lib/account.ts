@@ -2,7 +2,9 @@
 // use the account, which is how recovery links work. There is no other login.
 
 import { create } from 'zustand'
+import { alertOnce, raiseAlert } from './alerts'
 import { api, ApiError } from './api'
+import { isTrigger, typeLabel } from './orders'
 import { socket, type ServerMessage } from './socket'
 import { toast } from './toasts'
 import type { AccountEvent, Fill, FundingPayment, Me, Order } from './types'
@@ -167,18 +169,24 @@ export async function loadHistory(kind: keyof History) {
 
 function onAccountEvent(msg: ServerMessage) {
   const ev = msg.data as AccountEvent
-  if (ev.type === 'fill' && ev.fill && ev.order?.type === 'limit' && ev.fill.liquidity === 'maker') {
-    // Resting orders fill in the background; the user didn't just click anything.
-    toast(`Limit order filled: ${describeFill(ev.fill)}`, 'success')
+  // Resting limit orders and triggered stops or take-profits fill in the background: the
+  // user didn't just click anything, so tell them. An order filling in pieces alerts once.
+  if (ev.type === 'fill' && ev.fill && ev.order) {
+    const o = ev.order
+    const background = (o.type === 'limit' && ev.fill.liquidity === 'maker') || isTrigger(o.type)
+    if (background && alertOnce(`fill:${o.id}`)) {
+      const label = o.type === 'limit' ? 'Limit order' : typeLabel(o.type)
+      raiseAlert('fill', `${o.coin} ${label.toLowerCase()} filled`, `${label} filled: ${describeFill(ev.fill)}`)
+    }
   }
   if (ev.type === 'liquidation' && ev.liquidation) {
     const l = ev.liquidation
     const what = l.cross ? `Your cross positions (${l.coins.join(', ')}) were` : `Your isolated ${l.coins[0]} position was`
     const fee = Number(l.liquidationFee)
-    toast(
+    raiseAlert(
+      'liquidation',
+      `Liquidated: ${l.coins.join(', ')}`,
       `${what} liquidated: equity fell below maintenance margin.${fee > 0 ? ` Remaining margin forfeited: $${fee.toFixed(2)}.` : ''}`,
-      'error',
-      15000,
     )
   }
   if (ev.type === 'order' && ev.order?.status === 'cancelled' && ev.order.statusReason?.includes('insufficient margin')) {

@@ -17,6 +17,10 @@ type Subscription struct {
 	Type     string `json:"type"`
 	Coin     string `json:"coin,omitempty"`
 	Interval string `json:"interval,omitempty"`
+	// NSigFigs groups an l2Book's prices to this many significant figures (2–5). The
+	// grouped messages don't say which grouping they are, so each grouping needs its own
+	// connection.
+	NSigFigs int `json:"nSigFigs,omitempty"`
 }
 
 // Handler receives decoded stream messages. Calls come from a single goroutine, one at a

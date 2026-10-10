@@ -281,16 +281,46 @@
   }
 }
 
+.mobile-tabs {
+  display: none;
+}
+
 @media (max-width: 700px) {
-  /* On a phone the order form comes right after the chart: it's what people came to use. */
+  /* On a phone the chart, order book and trades share one spot behind tabs, and the order
+     form comes right after: it's what people came to use. */
   .terminal {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 340px auto auto auto;
+    grid-template-rows: auto auto auto auto auto;
     grid-template-areas:
+      'tabs'
       'chart'
-      'order'
       'book'
+      'order'
       'account';
+  }
+
+  .mobile-tabs {
+    display: flex;
+    grid-area: tabs;
+    background: var(--bg);
+  }
+
+  .mobile-tabs button {
+    flex: 1;
+  }
+
+  .chart-panel {
+    height: 360px;
+  }
+
+  .terminal[data-mobile-view='chart'] .book-panel,
+  .terminal[data-mobile-view='market'] .chart-panel {
+    display: none;
+  }
+
+  /* The tab bar above replaces the book panel's own tabs. */
+  .book-panel > .tabs {
+    display: none;
   }
 
   /* Stacked layout: the panel grows to fit the whole book rather than clipping it. */
@@ -1626,4 +1656,54 @@ button.primary.danger {
 
 .dialog .share-note {
   margin: 10px 0 0;
+}
+
+/* ---------- order book grouping ---------- */
+
+.book-tools {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 12px 0;
+  font-family: var(--sans);
+  font-size: 11px;
+}
+
+.book-tools label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.book-tools select {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  font-family: var(--mono);
+  color: var(--text);
+  background: var(--surface);
+}
+
+/* ---------- alerts ---------- */
+
+.menu-section {
+  margin: 4px 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.menu-heading {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.menu-check {
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--text);
 }

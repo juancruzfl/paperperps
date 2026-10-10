@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { AccountMenu, RecoveryNotice } from './components/AccountMenu'
 import { AccountPanel } from './components/AccountPanel'
-import { AboutPage } from './components/AboutPage'
-import { PrivacyPage, TermsPage } from './components/LegalPages'
 import { Chart } from './components/Chart'
 import { LeaderboardPage } from './components/LeaderboardPage'
 import { MarketSelector } from './components/MarketSelector'
@@ -10,17 +8,29 @@ import { OrderBook } from './components/OrderBook'
 import { OrderForm } from './components/OrderForm'
 import { StatsBar } from './components/StatsBar'
 import { Toasts } from './components/Toasts'
-import { TraderPage } from './components/TraderPage'
 import { Trades } from './components/Trades'
 import { bootAccount, useAccount } from './lib/account'
 import { chartLines } from './lib/chartLines'
 import { LEGAL_CONTACT } from './lib/legal'
-import { fetchStatus, useBook, useConnection, useTickers, useTrades } from './lib/market'
+import { fetchStatus, useConnection, useTickers, useTrades } from './lib/market'
 import { DEFAULT_COIN, useCoin, usePage } from './lib/route'
 import type { Status } from './lib/types'
 import './App.css'
 
+// Pages most visitors never open load on demand, keeping the trading screen's bundle small.
+const AboutPage = lazy(() => import('./components/AboutPage').then((m) => ({ default: m.AboutPage })))
+const TermsPage = lazy(() => import('./components/LegalPages').then((m) => ({ default: m.TermsPage })))
+const PrivacyPage = lazy(() => import('./components/LegalPages').then((m) => ({ default: m.PrivacyPage })))
+const TraderPage = lazy(() => import('./components/TraderPage').then((m) => ({ default: m.TraderPage })))
+
 type BookTab = 'book' | 'trades'
+type MobileView = 'chart' | BookTab
+
+const MOBILE_VIEWS: [MobileView, string][] = [
+  ['chart', 'Chart'],
+  ['book', 'Order Book'],
+  ['trades', 'Trades'],
+]
 
 function App() {
   const [coin, setCoin] = useCoin()
@@ -29,6 +39,10 @@ function App() {
   const ticker = tickers.find((t) => t.coin === coin)
   const me = useAccount((s) => s.me)
   const lines = useMemo(() => chartLines(me, tickers, coin), [me, tickers, coin])
+  const [bookTab, setBookTab] = useState<BookTab>('book')
+  // On phones the chart and the book/trades panel take turns in one spot.
+  const [showChart, setShowChart] = useState(true)
+  const mobileView: MobileView = showChart ? 'chart' : bookTab
   const [status, setStatus] = useState<Status | null>(null)
 
   useEffect(() => {
@@ -99,19 +113,34 @@ function App() {
 
       {page === 'leaderboard' ? (
         <LeaderboardPage />
-      ) : page === 'about' ? (
-        <AboutPage />
-      ) : page === 'terms' ? (
-        <TermsPage />
-      ) : page === 'privacy' ? (
-        <PrivacyPage />
-      ) : page === 'trader' ? (
-        <TraderPage />
+      ) : page === 'about' || page === 'terms' || page === 'privacy' || page === 'trader' ? (
+        <Suspense fallback={<main className="page"><div className="panel-empty">Loading…</div></main>}>
+          {page === 'about' ? <AboutPage /> : page === 'terms' ? <TermsPage /> : page === 'privacy' ? <PrivacyPage /> : <TraderPage />}
+        </Suspense>
       ) : (
         <>
       <StatsBar ticker={ticker} />
 
-      <main className="terminal">
+      <main className="terminal" data-mobile-view={mobileView === 'chart' ? 'chart' : 'market'}>
+        {/* Phones show one of chart, book or trades at a time; wider screens show all. */}
+        <div className="tabs mobile-tabs" role="tablist" aria-label="Market view">
+          {MOBILE_VIEWS.map(([view, label]) => (
+            <button
+              key={view}
+              type="button"
+              role="tab"
+              aria-selected={mobileView === view}
+              className={mobileView === view ? 'active' : ''}
+              onClick={() => {
+                setShowChart(view === 'chart')
+                if (view !== 'chart') setBookTab(view)
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <section className="panel chart-panel" aria-label="Chart">
           {ticker ? (
             <Chart coin={coin} szDecimals={ticker.szDecimals} refPx={Number(ticker.markPx)} lines={lines} />
@@ -120,7 +149,7 @@ function App() {
           )}
         </section>
 
-        <BookPanel coin={coin} szDecimals={ticker?.szDecimals ?? 2} />
+        <BookPanel coin={coin} szDecimals={ticker?.szDecimals ?? 2} tab={bookTab} onTab={setBookTab} />
 
         <section className="panel order-panel" aria-label="Place order">
           <OrderForm key={coin} ticker={ticker} />
@@ -137,9 +166,7 @@ function App() {
   )
 }
 
-function BookPanel({ coin, szDecimals }: { coin: string; szDecimals: number }) {
-  const [tab, setTab] = useState<BookTab>('book')
-  const book = useBook(coin)
+function BookPanel({ coin, szDecimals, tab, onTab: setTab }: { coin: string; szDecimals: number; tab: BookTab; onTab: (t: BookTab) => void }) {
   const trades = useTrades(coin)
 
   return (
@@ -153,7 +180,7 @@ function BookPanel({ coin, szDecimals }: { coin: string; szDecimals: number }) {
         </button>
       </div>
       {tab === 'book' ? (
-        <OrderBook book={book} szDecimals={szDecimals} coin={coin} />
+        <OrderBook szDecimals={szDecimals} coin={coin} />
       ) : (
         <Trades trades={trades} szDecimals={szDecimals} coin={coin} />
       )}

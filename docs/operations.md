@@ -195,6 +195,17 @@ so try again in a few seconds.
    except from a backup.
 4. Work out how the key leaked before making a new one.
 
+## Link previews and grouped books
+
+- **Profile previews.** `/u/<handle>` pages are served with that trader's Open Graph and
+  Twitter tags, and `GET /api/traders/<handle>/card.png` renders their card server-side
+  (`internal/sharecard`, about 80 ms; cached 5 minutes). Visibility is checked on every
+  request, so hiding takes effect at once. Chat apps cache previews on their side.
+- **Upstream connections.** Besides the main Hyperliquid feed, the server keeps three more
+  websocket connections for the order book groupings (4, 3 and 2 significant figures).
+  They're display-only: if one drops, that grouping freezes until it reconnects, and
+  trading, health and the stale-feed alert are unaffected.
+
 ## Handle filter
 
 New handles, and admin renames, go through a profanity filter
