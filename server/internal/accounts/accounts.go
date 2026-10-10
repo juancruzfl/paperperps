@@ -9,6 +9,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -167,13 +169,23 @@ type FundingPayment struct {
 
 // Account is an account's current trading state.
 type Account struct {
-	ID         uuid.UUID       `json:"accountId"`
-	Handle     string          `json:"handle"`
-	CreatedAt  time.Time       `json:"createdAt"`
-	RunID      uuid.UUID       `json:"runId"`
-	Balance    decimal.Decimal `json:"balance"`
-	Positions  []Position      `json:"positions"`
-	OpenOrders []Order         `json:"openOrders"`
+	ID               uuid.UUID  `json:"accountId"`
+	Handle           string     `json:"handle"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	LeaderboardOptIn bool       `json:"leaderboardOptIn"`
+	LastResetAt      *time.Time `json:"lastResetAt"`
+	Resets           int        `json:"resets"`
+
+	RunID           uuid.UUID       `json:"runId"`
+	StartingBalance decimal.Decimal `json:"startingBalance"` // of the current run
+	Balance         decimal.Decimal `json:"balance"`
+	// PriorPnl is the PnL of earlier runs (before resets), which still counts toward the
+	// leaderboard: each ended run's final balance plus the PnL locked at its reset, minus
+	// what it started with.
+	PriorPnl decimal.Decimal `json:"priorPnl"`
+
+	Positions  []Position `json:"positions"`
+	OpenOrders []Order    `json:"openOrders"`
 }
 
 const orderColumns = `id, coin, side, type, px, trigger_px, sz, filled_sz, tif, reduce_only, parent_order_id, oco_group,
@@ -190,9 +202,14 @@ func scanOrder(row pgx.Row) (Order, error) {
 func Load(ctx context.Context, q Querier, id uuid.UUID) (Account, error) {
 	a := Account{ID: id, Positions: []Position{}, OpenOrders: []Order{}}
 	err := q.QueryRow(ctx, `
-		SELECT a.handle, a.created_at, r.id, r.balance
+		SELECT a.handle, a.created_at, a.leaderboard_opt_in, a.last_reset_at,
+			r.id, r.starting_balance, r.balance,
+			coalesce((SELECT sum(p.balance + p.locked_upnl - p.starting_balance) FROM runs p
+				WHERE p.account_id = a.id AND p.id <> r.id), 0),
+			(SELECT count(*) - 1 FROM runs p WHERE p.account_id = a.id)
 		FROM accounts a JOIN runs r ON r.id = a.current_run_id
-		WHERE a.id = $1`, id).Scan(&a.Handle, &a.CreatedAt, &a.RunID, &a.Balance)
+		WHERE a.id = $1`, id).Scan(&a.Handle, &a.CreatedAt, &a.LeaderboardOptIn, &a.LastResetAt,
+		&a.RunID, &a.StartingBalance, &a.Balance, &a.PriorPnl, &a.Resets)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Account{}, ErrNotFound
 	}
@@ -279,3 +296,83 @@ func mustV7() uuid.UUID {
 
 // NewID returns a new time-ordered ID for any row.
 func NewID() uuid.UUID { return mustV7() }
+
+// --- profile ---
+
+var (
+	ErrHandleTaken   = errors.New("handle taken")
+	ErrHandleInvalid = errors.New("invalid handle")
+	handlePattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{2,23}$`)
+	reservedHandles  = []string{"admin", "administrator", "support", "moderator", "staff", "official",
+		"paperperps", "hyperliquid", "system", "root"}
+)
+
+// ValidateHandle checks a public display name: 3–24 lowercase letters, digits, - or _,
+// starting with a letter or digit, and not impersonating staff or the exchange.
+func ValidateHandle(h string) error {
+	if !handlePattern.MatchString(h) {
+		return ErrHandleInvalid
+	}
+	for _, r := range reservedHandles {
+		if strings.Contains(h, r) {
+			return ErrHandleInvalid
+		}
+	}
+	return nil
+}
+
+// Profile is the editable part of an account. Nil fields are left unchanged.
+type Profile struct {
+	Handle           *string `json:"handle"`
+	LeaderboardOptIn *bool   `json:"leaderboardOptIn"`
+}
+
+func (s *Store) UpdateProfile(ctx context.Context, id uuid.UUID, p Profile) error {
+	if p.Handle != nil {
+		h := strings.ToLower(strings.TrimSpace(*p.Handle))
+		if err := ValidateHandle(h); err != nil {
+			return err
+		}
+		p.Handle = &h
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE accounts SET handle = coalesce($2, handle), leaderboard_opt_in = coalesce($3, leaderboard_opt_in)
+		WHERE id = $1`, id, p.Handle, p.LeaderboardOptIn)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return ErrHandleTaken
+	}
+	return err
+}
+
+// --- equity history ---
+
+type EquityPoint struct {
+	Time          time.Time       `json:"t"`
+	Equity        decimal.Decimal `json:"equity"`
+	CumulativePnl decimal.Decimal `json:"cumulativePnl"`
+}
+
+// Equity returns the account's equity snapshots, oldest first: every snapshot from the
+// last 48 hours and one per hour before that, back 30 days.
+func (s *Store) Equity(ctx context.Context, id uuid.UUID, now time.Time) ([]EquityPoint, error) {
+	recent := now.Add(-48 * time.Hour)
+	rows, err := s.pool.Query(ctx, `
+		SELECT ts, equity, cumulative_pnl FROM (
+			SELECT DISTINCT ON (date_trunc('hour', ts)) ts, equity, cumulative_pnl
+			FROM equity_snapshots
+			WHERE account_id = $1 AND ts >= $2 AND ts < $3
+			ORDER BY date_trunc('hour', ts), ts DESC
+		) hourly
+		UNION ALL
+		SELECT ts, equity, cumulative_pnl FROM equity_snapshots WHERE account_id = $1 AND ts >= $3
+		ORDER BY ts`, id, now.Add(-30*24*time.Hour), recent)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (EquityPoint, error) {
+		var p EquityPoint
+		err := r.Scan(&p.Time, &p.Equity, &p.CumulativePnl)
+		return p, err
+	})
+}

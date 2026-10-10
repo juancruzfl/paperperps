@@ -132,8 +132,15 @@ export type Me = {
   accountId: string
   handle: string
   createdAt: string
+  leaderboardOptIn: boolean
+  lastResetAt: string | null
+  resets: number
   runId: string
+  startingBalance: string
   balance: string
+  priorPnl: string // PnL of runs ended by resets
+  lifetimePnl: string // leaderboard score at the time of the request
+  resetAvailableAt: string | null
   positions: Position[]
   openOrders: Order[]
   summary: MarginSummary
@@ -152,8 +159,33 @@ export type LiquidationInfo = {
 }
 
 export type AccountEvent = {
-  type: 'order' | 'fill' | 'leverage' | 'margin' | 'liquidation' | 'funding'
+  type: 'order' | 'fill' | 'leverage' | 'margin' | 'liquidation' | 'funding' | 'reset'
   order?: Order
   fill?: Fill
   liquidation?: LiquidationInfo
 }
+
+// --- leaderboard & performance ---
+
+export type LeaderboardWindow = '24h' | '7d' | '30d' | 'all'
+
+export type LeaderboardEntry = {
+  rank: number
+  handle: string
+  pnl: string
+  volume: string
+  trades: number
+  resets: number
+  you?: boolean
+}
+
+export type Leaderboard = {
+  window: LeaderboardWindow
+  updatedAt: string
+  minTrades: number
+  minAgeHours: number
+  entries: LeaderboardEntry[]
+  you?: LeaderboardEntry & { eligible: boolean; reason?: string }
+}
+
+export type EquityPoint = { t: string; equity: string; cumulativePnl: string }

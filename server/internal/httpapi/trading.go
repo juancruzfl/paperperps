@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,7 +16,9 @@ import (
 
 	"github.com/juancruzfl/paperperps/server/internal/accounts"
 	"github.com/juancruzfl/paperperps/server/internal/engine"
+	"github.com/juancruzfl/paperperps/server/internal/leaderboard"
 	"github.com/juancruzfl/paperperps/server/internal/market"
+	"github.com/juancruzfl/paperperps/server/internal/ratelimit"
 )
 
 const (
@@ -104,16 +108,121 @@ func handleCreateAccount(store *accounts.Store) http.HandlerFunc {
 type meResponse struct {
 	accounts.Account
 	Summary engine.Summary `json:"summary"`
+	// LifetimePnl is the leaderboard score: PnL across every run, at live marks.
+	LifetimePnl decimal.Decimal `json:"lifetimePnl"`
+	// ResetAvailableAt is when the next reset is allowed; null means now.
+	ResetAvailableAt *time.Time `json:"resetAvailableAt"`
 }
 
-func handleMe(store *accounts.Store, md *market.Service) http.HandlerFunc {
+func handleMe(store *accounts.Store, md *market.Service, cooldown time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		a, err := store.Load(r.Context(), accountID(r))
 		if err != nil {
 			internalError(w, "load account", err)
 			return
 		}
-		writeJSON(w, http.StatusOK, meResponse{Account: a, Summary: engine.SummarizeAccount(a, md)})
+		sum := engine.SummarizeAccount(a, md)
+		res := meResponse{
+			Account:     a,
+			Summary:     sum,
+			LifetimePnl: engine.Score(a.PriorPnl, a.Balance, sum.UnrealizedPnl, a.StartingBalance).Round(6),
+		}
+		if a.LastResetAt != nil {
+			if next := a.LastResetAt.Add(cooldown); time.Now().Before(next) {
+				res.ResetAvailableAt = &next
+			}
+		}
+		writeJSON(w, http.StatusOK, res)
+	}
+}
+
+// limit rejects requests over the limiter's rate for their key with 429.
+func limit(l *ratelimit.Limiter, key func(*http.Request) string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if l != nil {
+			if ok, wait := l.Allow(key(r)); !ok {
+				w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+				writeError(w, http.StatusTooManyRequests, "rate_limited",
+					fmt.Sprintf("too many requests; try again in %s", wait.Round(time.Second)))
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
+func handleReset(eng *engine.Engine, lb *leaderboard.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), engineTimeout)
+		defer cancel()
+		if err := eng.ResetAccount(ctx, accountID(r)); err != nil {
+			engineError(w, "reset account", err)
+			return
+		}
+		lb.Invalidate()
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func handleUpdateProfile(store *accounts.Store, lb *leaderboard.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var p accounts.Profile
+		if !decodeBody(w, r, &p) {
+			return
+		}
+		switch err := store.UpdateProfile(r.Context(), accountID(r), p); {
+		case errors.Is(err, accounts.ErrHandleInvalid):
+			writeError(w, http.StatusBadRequest, "invalid_handle",
+				"handles are 3–24 lowercase letters, digits, - or _, and can't contain reserved words")
+		case errors.Is(err, accounts.ErrHandleTaken):
+			writeError(w, http.StatusConflict, "handle_taken", "that handle is taken")
+		case err != nil:
+			internalError(w, "update profile", err)
+		default:
+			lb.Invalidate()
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
+func handleEquity(store *accounts.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		points, err := store.Equity(r.Context(), accountID(r), time.Now())
+		if err != nil {
+			internalError(w, "equity history", err)
+			return
+		}
+		if points == nil {
+			points = []accounts.EquityPoint{}
+		}
+		writeJSON(w, http.StatusOK, points)
+	}
+}
+
+// handleLeaderboard serves GET /api/leaderboard?window=24h|7d|30d|all. Authentication is
+// optional; with it the response includes the viewer's own standing.
+func handleLeaderboard(lb *leaderboard.Service, store *accounts.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		window := r.URL.Query().Get("window")
+		if window == "" {
+			window = "all"
+		}
+		viewer := uuid.Nil
+		if secret := bearer(r); secret != "" {
+			if id, err := store.Authenticate(r.Context(), secret); err == nil {
+				viewer = id
+			}
+		}
+		board, err := lb.Get(r.Context(), window, viewer)
+		if errors.Is(err, leaderboard.ErrBadWindow) {
+			writeError(w, http.StatusBadRequest, "bad_window", "window must be 24h, 7d, 30d or all")
+			return
+		}
+		if err != nil {
+			internalError(w, "leaderboard", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, board)
 	}
 }
 

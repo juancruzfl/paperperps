@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { ApiError } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import {
   dismissRecoveryNotice,
+  refreshAccount,
   recoveryLink,
   recoveryNoticeDismissed,
   restoreAccount,
@@ -27,6 +28,7 @@ export function AccountMenu() {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const restoreRef = useRef<HTMLDialogElement>(null)
+  const resetRef = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -70,10 +72,86 @@ export function AccountMenu() {
           >
             Restore another account…
           </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="danger"
+            onClick={() => {
+              setOpen(false)
+              void refreshAccount() // fresh cooldown and PnL figures for the dialog
+              resetRef.current?.showModal()
+            }}
+          >
+            Reset account…
+          </button>
         </div>
       )}
       <RestoreDialog dialogRef={restoreRef} />
+      <ResetDialog dialogRef={resetRef} />
     </div>
+  )
+}
+
+function ResetDialog({ dialogRef }: { dialogRef: React.RefObject<HTMLDialogElement | null> }) {
+  const { me, secret } = useAccount()
+  const tickers = useTickers()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  if (!me || !secret) return <dialog ref={dialogRef} className="dialog" />
+
+  const openPnl = summarize(Number(me.balance), coinStates(me, tickers)).unrealizedPnl
+  const hasPositions = me.positions.some((p) => Number(p.size) !== 0)
+  // The server only sends resetAvailableAt while the cooldown is running.
+  const nextReset = me.resetAvailableAt ? new Date(me.resetAvailableAt) : null
+  const waiting = nextReset !== null
+
+  const reset = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await api.reset(secret)
+      await refreshAccount()
+      toast('Account reset: you have a fresh $1,000', 'success')
+      dialogRef.current?.close()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not reach the server')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <dialog ref={dialogRef} className="dialog" aria-labelledby="reset-title">
+      <h3 id="reset-title">Reset your account?</h3>
+      <ul className="reset-list small">
+        <li>Your balance goes back to $1,000 and your open orders are cancelled.</li>
+        <li>
+          Open positions are wiped, not traded.
+          {hasPositions && (
+            <>
+              {' '}
+              Their unrealized PnL right now (<strong className={openPnl < 0 ? 'down' : 'up'}>{formatUsd(openPnl, { signed: true })}</strong>)
+              is locked in.
+            </>
+          )}
+        </li>
+        <li>
+          Your leaderboard score keeps everything you made or lost before the reset (lifetime PnL now{' '}
+          <strong>{formatUsd(Number(me.lifetimePnl), { signed: true })}</strong>).
+        </li>
+        <li>You can reset once every 24 hours.</li>
+      </ul>
+      {nextReset && <p className="form-error">You can reset again at {nextReset.toLocaleString()}.</p>}
+      {error && <p className="form-error">{error}</p>}
+      <div className="dialog-actions">
+        <button type="button" className="ghost" onClick={() => dialogRef.current?.close()}>
+          Cancel
+        </button>
+        <button type="button" className="primary danger" onClick={() => void reset()} disabled={busy || waiting}>
+          {busy ? 'Resetting…' : 'Reset to $1,000'}
+        </button>
+      </div>
+    </dialog>
   )
 }
 

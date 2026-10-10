@@ -159,18 +159,14 @@ Built (M1–M2):
 | GET | `/api/markets` | Tickers for the enabled markets |
 | GET | `/api/markets/{coin}/candles?interval=` | Last 500 bars, cached 10s |
 | GET | `/api/status` | Version, engine leader/standby, network, markets |
+| PATCH | `/api/me` | `{handle?, leaderboardOptIn?}` |
+| POST | `/api/me/reset` | Fresh $1,000 run; 24h cooldown (`reset_cooldown` otherwise) |
+| GET | `/api/me/equity` | Equity and lifetime PnL snapshots: every 5 min for 48h, hourly back to 30 days |
+| GET | `/api/leaderboard?window=24h\|7d\|30d\|all` | Top 100, plus your own standing when authenticated |
 | WS | `/ws` | Topics: `markets`, `book:<coin>`, `trades:<coin>`, and private `account:<id>` (needs `token`) |
 
 There is no separate restore endpoint. A recovery link (`/restore#<secret>`) just makes the
 browser use that secret.
-
-Planned:
-
-| Method | Path | Purpose | Milestone |
-|---|---|---|---|
-| PATCH | `/api/me` | Set handle, leaderboard opt-in | M5 |
-| POST | `/api/me/reset` | Reset to $1,000 (cooldown enforced) | M5 |
-| GET | `/api/leaderboard?window=` | Rankings | M5 |
 
 Auth: `Authorization: Bearer <secret>`. Only `sha256(secret)` is stored. Errors are
 `{error: <code>, message}`. Order rejections use codes such as `insufficient_margin`,
@@ -566,6 +562,35 @@ order.
 **M5 — Social & polish**
 Equity snapshots, PnL chart, leaderboard + handles, account reset + cooldown, abuse rate
 limits, empty/error states, mobile layout.
+*Status (2026-10-09): done.*
+- **Score:** `engine.Score` = Σ over every run of (balance + PnL locked at reset − starting
+  balance) + open unrealized PnL. The leaderboard computes it from `runs` plus open
+  positions at live marks, recomputed at most every 30s and invalidated when a profile
+  changes or an account resets.
+  - Windows subtract the latest `equity_snapshots.cumulative_pnl` from before the window
+    started.
+- **Snapshots:** every 5 minutes for accounts with open positions or with changes since
+  the last snapshot, and once more when the engine stops.
+- **Reset:**
+  - Cancels orders and wipes positions, including leverage and margin-mode settings.
+  - Locks the positions' unrealized PnL into the ended run (`runs.locked_upnl`) and
+    starts a new $1,000 run.
+  - Refused while a position's market is stale, since it can't be valued.
+- **Handles:** 3–24 characters of `[a-z0-9_-]`. Handles containing reserved words such as
+  "admin" or "hyperliquid" are refused. There is no profanity filter yet.
+- **Rate limits** (in memory, per instance):
+  - 5 new accounts per IP per hour. The IP is the last `X-Forwarded-For` entry, the one
+    Railway's proxy appends; revisit if a CDN goes in front.
+  - 10 trading calls per second per account, with bursts of 30. Over the limit, calls
+    get `429` with `Retry-After`.
+- **UI:**
+  - A leaderboard page with windows, your pinned row and the reason you're not ranked
+    yet, plus handle editing and opt-out.
+  - A Performance tab with a lifetime PnL chart and live last point.
+  - A reset dialog showing what gets locked in, and the cooldown.
+  - A banner after 4s without live data, and a crash screen instead of a blank page.
+  - On phones, the order form sits right after the chart, with no horizontal scroll at
+    390px.
 
 **M6 — Launch hardening**
 Load test (many accounts × resting orders), restart/redeploy recovery (advisory lock

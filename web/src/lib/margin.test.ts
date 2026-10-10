@@ -8,6 +8,7 @@ import {
   orderMargin,
   positionMargin,
   projectedLiquidationPrice,
+  score,
   summarize,
   unrealizedPnl,
   type CoinState,
@@ -130,5 +131,13 @@ describe('isolated margin and liquidation', () => {
     expect(isolatedMarginAfter(0.03, 125, 0.01, 85000, 20)).toBeCloseTo(41.666667, 5)
     expect(isolatedMarginAfter(0.01, 41, 0, 85000, 20)).toBe(0)
     expect(isolatedMarginAfter(0.01, 41, -0.02, 80000, 20)).toBeCloseTo(80)
+  })
+})
+
+describe('score mirrors engine.Score', () => {
+  it('keeps PnL from runs ended by resets', () => {
+    // TestResetLocksPnLAndHasCooldown: after the reset, prior -10.419 on a fresh 1,000.
+    expect(score(-10.419, 1000, 0, 1000)).toBeCloseTo(-10.419)
+    expect(score(-10.419, 1030, 5, 1000)).toBeCloseTo(24.581)
   })
 })

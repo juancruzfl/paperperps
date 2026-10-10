@@ -15,7 +15,9 @@ import (
 	"github.com/juancruzfl/paperperps/server/internal/config"
 	"github.com/juancruzfl/paperperps/server/internal/engine"
 	"github.com/juancruzfl/paperperps/server/internal/hub"
+	"github.com/juancruzfl/paperperps/server/internal/leaderboard"
 	"github.com/juancruzfl/paperperps/server/internal/market"
+	"github.com/juancruzfl/paperperps/server/internal/ratelimit"
 )
 
 // Deps are the services the HTTP layer serves.
@@ -27,6 +29,11 @@ type Deps struct {
 	Market   *market.Service
 	Candles  *market.Candles
 	Hub      *hub.Hub
+
+	Leaderboard *leaderboard.Service
+	// NewAccounts limits account creation per IP; Trading limits trading calls per account.
+	NewAccounts *ratelimit.Limiter
+	Trading     *ratelimit.Limiter
 }
 
 // New builds the HTTP handler.
@@ -70,18 +77,26 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /ws", handleWS(d.Hub, d.Accounts.Authenticate))
 
 	auth := func(h http.HandlerFunc) http.HandlerFunc { return requireAccount(d.Accounts, h) }
-	mux.HandleFunc("POST /api/accounts", handleCreateAccount(d.Accounts))
-	mux.HandleFunc("GET /api/me", auth(handleMe(d.Accounts, d.Market)))
+	// trade is for calls that change trading state: authenticated and rate limited per account.
+	trade := func(h http.HandlerFunc) http.HandlerFunc {
+		return auth(limit(d.Trading, func(r *http.Request) string { return accountID(r).String() }, h))
+	}
+	mux.HandleFunc("POST /api/accounts", limit(d.NewAccounts, ratelimit.ClientIP, handleCreateAccount(d.Accounts)))
+	mux.HandleFunc("GET /api/me", auth(handleMe(d.Accounts, d.Market, cfg.ResetCooldown)))
+	mux.HandleFunc("PATCH /api/me", trade(handleUpdateProfile(d.Accounts, d.Leaderboard)))
+	mux.HandleFunc("POST /api/me/reset", trade(handleReset(d.Engine, d.Leaderboard)))
+	mux.HandleFunc("GET /api/me/equity", auth(handleEquity(d.Accounts)))
+	mux.HandleFunc("GET /api/leaderboard", handleLeaderboard(d.Leaderboard, d.Accounts))
 	mux.HandleFunc("GET /api/me/orders", auth(handleHistory("order history", d.Accounts.OrderHistory)))
 	mux.HandleFunc("GET /api/me/fills", auth(handleHistory("fills", d.Accounts.Fills)))
 	mux.HandleFunc("GET /api/me/funding", auth(handleHistory("funding", d.Accounts.Funding)))
-	mux.HandleFunc("PUT /api/me/leverage/{coin}", auth(handleSetLeverage(d.Engine)))
-	mux.HandleFunc("PUT /api/me/margin-mode/{coin}", auth(handleSetMarginMode(d.Engine)))
-	mux.HandleFunc("POST /api/me/isolated-margin/{coin}", auth(handleAdjustIsolatedMargin(d.Engine)))
-	mux.HandleFunc("POST /api/orders", auth(handlePlaceOrder(d.Engine)))
-	mux.HandleFunc("DELETE /api/orders/{id}", auth(handleCancelOrder(d.Engine)))
-	mux.HandleFunc("POST /api/orders/{id}/modify", auth(handleModifyOrder(d.Engine)))
-	mux.HandleFunc("PUT /api/me/tpsl/{coin}", auth(handleSetPositionTPSL(d.Engine)))
+	mux.HandleFunc("PUT /api/me/leverage/{coin}", trade(handleSetLeverage(d.Engine)))
+	mux.HandleFunc("PUT /api/me/margin-mode/{coin}", trade(handleSetMarginMode(d.Engine)))
+	mux.HandleFunc("POST /api/me/isolated-margin/{coin}", trade(handleAdjustIsolatedMargin(d.Engine)))
+	mux.HandleFunc("POST /api/orders", trade(handlePlaceOrder(d.Engine)))
+	mux.HandleFunc("DELETE /api/orders/{id}", trade(handleCancelOrder(d.Engine)))
+	mux.HandleFunc("POST /api/orders/{id}/modify", trade(handleModifyOrder(d.Engine)))
+	mux.HandleFunc("PUT /api/me/tpsl/{coin}", trade(handleSetPositionTPSL(d.Engine)))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not_found"})

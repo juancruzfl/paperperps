@@ -19,7 +19,10 @@ server/   Go backend: API, websocket, trading engine; serves the built frontend
   internal/market/       live market state (books, trades, tickers), candle cache
   internal/hub/          topic fan-out to browser websockets
   internal/accounts/     anonymous accounts, secret auth, account/history reads
-  internal/engine/       order execution, cross margin, fills and ledger (leader only)
+  internal/engine/       orders, margin, liquidations, funding, resets, snapshots (leader only)
+  internal/leaderboard/  lifetime-PnL rankings with 24h/7d/30d windows
+  internal/ratelimit/    per-IP and per-account token buckets
+  internal/dbtest/       throwaway databases for tests
   internal/httpapi/      HTTP routes, /ws, health check, SPA serving
 web/      React + TypeScript + Vite frontend
 docs/     plan and deploy docs

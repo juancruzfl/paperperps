@@ -30,6 +30,10 @@ export type Summary = {
   available: number
 }
 
+/** Lifetime PnL, the leaderboard score (mirrors engine.Score). */
+export const score = (priorPnl: number, balance: number, unrealized: number, startingBalance: number) =>
+  priorPnl + balance + unrealized - startingBalance
+
 export const maintenanceRate = (maxLeverage: number) => 1 / (2 * Math.max(1, maxLeverage))
 
 export const maintenanceMargin = (c: CoinState) => Math.abs(c.size) * c.markPx * c.maintenanceRate

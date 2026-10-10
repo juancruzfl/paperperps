@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AccountMenu, RecoveryNotice } from './components/AccountMenu'
 import { AccountPanel } from './components/AccountPanel'
 import { Chart } from './components/Chart'
+import { LeaderboardPage } from './components/LeaderboardPage'
 import { MarketSelector } from './components/MarketSelector'
 import { OrderBook } from './components/OrderBook'
 import { OrderForm } from './components/OrderForm'
@@ -10,7 +11,7 @@ import { Toasts } from './components/Toasts'
 import { Trades } from './components/Trades'
 import { bootAccount } from './lib/account'
 import { fetchStatus, useBook, useConnection, useTickers, useTrades } from './lib/market'
-import { DEFAULT_COIN, useCoin } from './lib/route'
+import { DEFAULT_COIN, useCoin, usePage } from './lib/route'
 import type { Status } from './lib/types'
 import './App.css'
 
@@ -18,6 +19,7 @@ type BookTab = 'book' | 'trades'
 
 function App() {
   const [coin, setCoin] = useCoin()
+  const [page, setPage] = usePage()
   const tickers = useTickers()
   const ticker = tickers.find((t) => t.coin === coin)
   const [status, setStatus] = useState<Status | null>(null)
@@ -37,18 +39,23 @@ function App() {
 
   // Send unknown markets to the default one, and / to its canonical /trade/<coin> URL.
   useEffect(() => {
+    if (page !== 'trade') return
     if (tickers.length > 0 && !ticker) {
       const fallback = tickers.some((t) => t.coin === DEFAULT_COIN) ? DEFAULT_COIN : tickers[0].coin
       setCoin(fallback, true)
     } else if (location.pathname === '/' || location.pathname === '/restore') {
       setCoin(coin, true)
     }
-  }, [coin, ticker, tickers, setCoin])
+  }, [page, coin, ticker, tickers, setCoin])
 
   useEffect(() => {
+    if (page === 'leaderboard') {
+      document.title = 'Leaderboard · PaperPerps'
+      return
+    }
     const px = ticker ? ` ${Number(ticker.markPx).toLocaleString('en-US')}` : ''
     document.title = `${coin}${px} · PaperPerps`
-  }, [coin, ticker])
+  }, [page, coin, ticker])
 
   return (
     <div className="app">
@@ -58,11 +65,32 @@ function App() {
           <img src="/favicon.svg" alt="" />
           <span className="logo-text">PaperPerps</span>
         </a>
-        <MarketSelector coin={coin} tickers={tickers} onSelect={setCoin} />
+        {page === 'trade' && <MarketSelector coin={coin} tickers={tickers} onSelect={setCoin} />}
+        <nav className="nav">
+          {(['trade', 'leaderboard'] as const).map((p) => (
+            <a
+              key={p}
+              href={p === 'trade' ? '/' : '/leaderboard'}
+              className={page === p ? 'active' : undefined}
+              aria-current={page === p ? 'page' : undefined}
+              onClick={(e) => {
+                e.preventDefault()
+                setPage(p)
+              }}
+            >
+              {p === 'trade' ? 'Trade' : 'Leaderboard'}
+            </a>
+          ))}
+        </nav>
         <AccountMenu />
       </header>
       <RecoveryNotice />
+      <ConnectionBanner />
 
+      {page === 'leaderboard' ? (
+        <LeaderboardPage />
+      ) : (
+        <>
       <StatsBar ticker={ticker} />
 
       <main className="terminal">
@@ -82,6 +110,8 @@ function App() {
 
         <AccountPanel onSelectCoin={setCoin} />
       </main>
+        </>
+      )}
 
       <Toasts />
       <Footer status={status} />
@@ -110,6 +140,28 @@ function BookPanel({ coin, szDecimals }: { coin: string; szDecimals: number }) {
         <Trades trades={trades} szDecimals={szDecimals} coin={coin} />
       )}
     </section>
+  )
+}
+
+/** Warns when live data has been cut off for more than a few seconds. */
+function ConnectionBanner() {
+  const up = useConnection() === 'open'
+  const [show, setShow] = useState(false)
+  // Keyed on up/down, not the exact state: retries flip between connecting and closed, and
+  // that mustn't restart the timer.
+  useEffect(() => {
+    if (up) return
+    const id = setTimeout(() => setShow(true), 4000) // ride out blips and deploys quietly
+    return () => {
+      clearTimeout(id)
+      setShow(false)
+    }
+  }, [up])
+  if (!show) return null
+  return (
+    <div className="conn-banner" role="status">
+      Reconnecting to live prices… Prices and your positions will update once we’re back.
+    </div>
   )
 }
 

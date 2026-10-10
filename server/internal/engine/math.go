@@ -214,6 +214,13 @@ func Summarize(balance decimal.Decimal, coins []CoinState) Summary {
 	return s
 }
 
+// Score is an account's lifetime PnL, what the leaderboard ranks: PnL from runs ended by
+// resets plus the current run's (balance and unrealized PnL over what it started with).
+// A reset gives a fresh bankroll, not a fresh score (docs/plan.md §5.3).
+func Score(priorPnl, balance, unrealizedPnl, startingBalance decimal.Decimal) decimal.Decimal {
+	return priorPnl.Add(balance).Add(unrealizedPnl).Sub(startingBalance)
+}
+
 // IsolatedMarginAfter returns an isolated position's margin after it changes from oldSize
 // to newSize at px. Opening or adding allocates initial margin for the added size;
 // reducing releases margin in proportion; flipping starts over for the new side.

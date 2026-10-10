@@ -9,6 +9,7 @@ require (
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/shopspring/decimal v1.5.0
 	golang.org/x/sync v0.22.0
+	golang.org/x/time v0.16.0
 )
 
 require (

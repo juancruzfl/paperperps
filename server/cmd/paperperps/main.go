@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"golang.org/x/time/rate"
 
 	"github.com/juancruzfl/paperperps/server/internal/accounts"
 	"github.com/juancruzfl/paperperps/server/internal/config"
@@ -25,7 +26,9 @@ import (
 	"github.com/juancruzfl/paperperps/server/internal/hub"
 	"github.com/juancruzfl/paperperps/server/internal/hyperliquid"
 	"github.com/juancruzfl/paperperps/server/internal/leader"
+	"github.com/juancruzfl/paperperps/server/internal/leaderboard"
 	"github.com/juancruzfl/paperperps/server/internal/market"
+	"github.com/juancruzfl/paperperps/server/internal/ratelimit"
 )
 
 func main() {
@@ -75,6 +78,8 @@ func run() error {
 		MinNotional:     decimal.NewFromInt(10),
 		DefaultLeverage: 20,
 		LiquidationMode: cfg.LiquidationMode,
+		StartingBalance: cfg.StartingBalance,
+		ResetCooldown:   cfg.ResetCooldown,
 	})
 	srv := &http.Server{
 		Addr: net.JoinHostPort("", cfg.Port),
@@ -86,6 +91,11 @@ func run() error {
 			Market:   markets,
 			Candles:  market.NewCandles(info, 10*time.Second),
 			Hub:      h,
+
+			Leaderboard: leaderboard.New(pool, markets, cfg.LeaderboardMinTrades, cfg.LeaderboardMinAge, 30*time.Second),
+			// 5 new accounts per IP per hour; 10 trading calls per second per account, bursts of 30.
+			NewAccounts: ratelimit.New(rate.Every(12*time.Minute), 5),
+			Trading:     ratelimit.New(10, 30),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,

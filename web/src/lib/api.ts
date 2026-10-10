@@ -1,6 +1,19 @@
 // REST client. Authenticated calls send the account secret as a bearer token.
 
-import type { CreatedAccount, Fill, FundingPayment, Me, Order, OrderResult, OrderType, Side, TIF } from './types'
+import type {
+  CreatedAccount,
+  EquityPoint,
+  Fill,
+  FundingPayment,
+  Leaderboard,
+  LeaderboardWindow,
+  Me,
+  Order,
+  OrderResult,
+  OrderType,
+  Side,
+  TIF,
+} from './types'
 
 export type NewOrder = {
   coin: string
@@ -42,6 +55,12 @@ async function request<T>(path: string, init: RequestInit & { secret?: string } 
 export const api = {
   createAccount: () => request<CreatedAccount>('/api/accounts', { method: 'POST' }),
   me: (secret: string) => request<Me>('/api/me', { secret }),
+  updateProfile: (secret: string, profile: { handle?: string; leaderboardOptIn?: boolean }) =>
+    request<void>('/api/me', { method: 'PATCH', secret, body: JSON.stringify(profile) }),
+  reset: (secret: string) => request<void>('/api/me/reset', { method: 'POST', secret }),
+  equity: (secret: string) => request<EquityPoint[]>('/api/me/equity', { secret }),
+  leaderboard: (window: LeaderboardWindow, secret?: string | null) =>
+    request<Leaderboard>(`/api/leaderboard?window=${window}`, { secret: secret ?? undefined }),
   fills: (secret: string) => request<Fill[]>('/api/me/fills', { secret }),
   orderHistory: (secret: string) => request<Order[]>('/api/me/orders', { secret }),
   funding: (secret: string) => request<FundingPayment[]>('/api/me/funding', { secret }),

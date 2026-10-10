@@ -4,6 +4,7 @@ import { describeFill, loadHistory, refreshAccount, useAccount } from '../lib/ac
 import { formatNumber, formatPct, formatUsd, pxDecimals } from '../lib/format'
 import { coinStates, liquidationPrice, positionMargin, summarize, unrealizedPnl } from '../lib/margin'
 import { IsolatedMarginControl } from './MarginControls'
+import { Performance } from './Performance'
 import { ModifyOrderControl, PositionTPSLControl } from './OrderDialogs'
 import { isTrigger, orderTags, triggerDirection, typeLabel } from '../lib/orders'
 import type { Order } from '../lib/types'
@@ -11,7 +12,7 @@ import { useTickers } from '../lib/market'
 import { toast } from '../lib/toasts'
 import type { Ticker } from '../lib/types'
 
-const TABS = ['Positions', 'Open Orders', 'Trade History', 'Order History', 'Funding History'] as const
+const TABS = ['Positions', 'Open Orders', 'Trade History', 'Order History', 'Funding History', 'Performance'] as const
 type Tab = (typeof TABS)[number]
 
 const dateTime = new Intl.DateTimeFormat(undefined, {
@@ -49,6 +50,7 @@ export function AccountPanel({ onSelectCoin }: { onSelectCoin: (coin: string) =>
         {tab === 'Trade History' && <TradeHistory />}
         {tab === 'Order History' && <OrderHistory />}
         {tab === 'Funding History' && <FundingHistory />}
+        {tab === 'Performance' && <Performance />}
       </div>
     </section>
   )

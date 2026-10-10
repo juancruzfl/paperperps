@@ -178,6 +178,7 @@ func (e *Engine) liquidate(ctx context.Context, a *account, coins []string, cros
 		info.Fills = append(info.Fills, r.fill)
 	}
 	a.balance = a.balance.Add(badDebt).Sub(liqFee)
+	a.dirty = true
 	for _, o := range cancel {
 		delete(a.orders, o.ID)
 		e.unindex(o)
@@ -286,6 +287,7 @@ func (e *Engine) fundAccount(ctx context.Context, a *account, hour time.Time) er
 		return err
 	}
 	for _, f := range paid {
+		a.dirty = true
 		a.balance = a.balance.Add(f.amount)
 		if p := a.positions[f.coin]; p.isolated {
 			p.isoMargin = p.isoMargin.Add(f.amount)

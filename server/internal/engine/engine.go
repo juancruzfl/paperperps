@@ -49,6 +49,12 @@ type Config struct {
 	RiskInterval time.Duration
 	// Now is the clock; tests replace it. Default time.Now in UTC.
 	Now func() time.Time
+	// StartingBalance funds each new run after a reset.
+	StartingBalance decimal.Decimal
+	// ResetCooldown is the minimum time between resets.
+	ResetCooldown time.Duration
+	// SnapshotInterval is how often equity snapshots are taken. Default 5m.
+	SnapshotInterval time.Duration
 }
 
 const (
@@ -135,6 +141,11 @@ type account struct {
 	balance   decimal.Decimal
 	positions map[string]*position
 	orders    map[uuid.UUID]*accounts.Order // open orders
+
+	startingBalance decimal.Decimal // of the current run
+	priorPnl        decimal.Decimal // PnL of runs ended by resets
+	lastResetAt     *time.Time
+	dirty           bool // changed since the last equity snapshot
 }
 
 type event struct {
@@ -175,6 +186,12 @@ func New(pool *pgxpool.Pool, md MarketData, pub Publisher, cfg Config) *Engine {
 	}
 	if cfg.LiquidationMode == "" {
 		cfg.LiquidationMode = LiquidationForfeit
+	}
+	if cfg.SnapshotInterval == 0 {
+		cfg.SnapshotInterval = 5 * time.Minute
+	}
+	if cfg.StartingBalance.IsZero() {
+		cfg.StartingBalance = decimal.NewFromInt(1000)
 	}
 	return &Engine{
 		pool:   pool,
@@ -222,6 +239,14 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	risk := time.NewTicker(e.cfg.RiskInterval)
 	defer risk.Stop()
+	snapshots := time.NewTicker(e.cfg.SnapshotInterval)
+	defer snapshots.Stop()
+	// Stopping (deploy, lock lost): record what changed since the last snapshot first.
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		e.snapshot(flushCtx, true)
+	}()
 
 	e.running.Store(true)
 	defer e.running.Store(false)
@@ -235,6 +260,8 @@ func (e *Engine) Run(ctx context.Context) error {
 			e.handleEvent(ctx, ev)
 		case <-risk.C:
 			e.riskTick(ctx)
+		case <-snapshots.C:
+			e.snapshot(ctx, false)
 		}
 	}
 }
@@ -364,6 +391,7 @@ func (e *Engine) applyFill(a *account, r fillRecord) {
 	pos := a.position(r.fill.Coin, r.leverage)
 	pos.size, pos.entryPx, pos.isoMargin = r.newSize, r.newEntry, r.newIsoMargin
 	a.balance = a.balance.Add(r.balanceDelta)
+	a.dirty = true
 }
 
 func (e *Engine) account(ctx context.Context, id uuid.UUID) (*account, error) {
@@ -375,11 +403,14 @@ func (e *Engine) account(ctx context.Context, id uuid.UUID) (*account, error) {
 		return nil, err
 	}
 	a := &account{
-		id:        id,
-		runID:     st.RunID,
-		balance:   st.Balance,
-		positions: map[string]*position{},
-		orders:    map[uuid.UUID]*accounts.Order{},
+		id:              id,
+		runID:           st.RunID,
+		balance:         st.Balance,
+		positions:       map[string]*position{},
+		orders:          map[uuid.UUID]*accounts.Order{},
+		startingBalance: st.StartingBalance,
+		priorPnl:        st.PriorPnl,
+		lastResetAt:     st.LastResetAt,
 	}
 	for _, p := range st.Positions {
 		a.positions[p.Coin] = &position{
