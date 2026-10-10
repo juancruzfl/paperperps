@@ -153,7 +153,12 @@ func TestStreamSubscribesPingsAndReconnects(t *testing.T) {
 		rec.mu.Lock()
 		reconnected := rec.connects >= 2 && len(rec.books) >= 2
 		rec.mu.Unlock()
-		if reconnected {
+		// The fake records subscriptions on its own goroutine, so wait for those too:
+		// the client can see the second connection's book before its last subscribe lands.
+		fake.mu.Lock()
+		subscribed := len(fake.subs) >= 4
+		fake.mu.Unlock()
+		if reconnected && subscribed {
 			break
 		}
 		if time.Now().After(deadline) {

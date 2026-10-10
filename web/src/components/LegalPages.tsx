@@ -200,7 +200,16 @@ export function PrivacyPage() {
       <h2>What’s public</h2>
       <p>
         If you’re eligible and haven’t hidden yourself, the leaderboard shows your handle, profit and loss, trading volume,
-        number of trades and number of resets. You can hide yourself from the leaderboard page at any time.
+        number of trades and number of resets.
+      </p>
+      <p>
+        While you’re shown on the leaderboard, you also have a public profile page (/u/your-handle) showing your profit and
+        loss over time, win rate, best trade, trading volume, the date you started, and your open positions (coin, size,
+        entry price and leverage). It never shows your balance, orders or recovery key.
+      </p>
+      <p>
+        Turning off “Show me on the leaderboard” on the leaderboard page hides both, at any time. Share images you create
+        are made in your browser and only go where you send them.
       </p>
 
       <h2>IP addresses and technical data</h2>

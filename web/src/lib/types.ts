@@ -170,6 +170,22 @@ export type AccountEvent = {
 
 // --- leaderboard & performance ---
 
+/** A public profile, /u/<handle>: what the leaderboard shows, plus PnL history and open positions. */
+export type TraderProfile = {
+  handle: string
+  createdAt: string
+  lifetimePnl: string
+  resets: number
+  rank: number // all-time; 0 until the trader qualifies
+  trades: number
+  closedTrades: number
+  wins: number
+  bestTrade: string
+  volume: string
+  equity: { t: string; cumulativePnl: string }[]
+  positions: { coin: string; size: string; entryPx: string; leverage: number; marginMode: 'cross' | 'isolated' }[]
+}
+
 export type LeaderboardWindow = '24h' | '7d' | '30d' | 'all'
 
 export type LeaderboardEntry = {
