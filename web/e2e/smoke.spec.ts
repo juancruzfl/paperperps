@@ -98,3 +98,40 @@ test('phone layout has no sideways scroll @phone', async ({ page }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(overflow).toBeLessThanOrEqual(0)
 })
+
+test('a trader shares a position and has a public profile', async ({ page, request }) => {
+  await setPrice(request, 'ETH', 2500)
+  await page.goto('/trade/ETH')
+  await expect(page.locator('.book-row.bid').first()).toBeVisible()
+  const handle = (await page.locator('.account-handle').textContent())?.trim() ?? ''
+  expect(handle).not.toBe('')
+
+  await test.step('open a position and preview its share card', async () => {
+    await page.getByLabel('Size (ETH)').fill('1')
+    await page.getByRole('button', { name: 'Buy / Long ETH' }).click()
+    await expect(page.getByRole('tab', { name: 'Positions (1)' })).toBeVisible()
+    await page.locator('.account-panel').getByRole('button', { name: 'Share', exact: true }).click()
+    const dialog = page.locator('dialog[open]')
+    await expect(dialog.getByRole('img', { name: 'Share card preview' })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Download' })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Copy profile link' })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Close' }).click()
+  })
+
+  await test.step('the profile shows the open position', async () => {
+    await page.goto(`/u/${handle}`)
+    await expect(page.getByRole('heading', { name: handle })).toBeVisible()
+    await expect(page.locator('.trader-stats')).toContainText('Trades')
+    await expect(page.locator('.trader-section').getByRole('cell', { name: /^ETH/ })).toBeVisible()
+  })
+
+  await test.step('hiding from the leaderboard hides the profile', async () => {
+    await page.goto('/leaderboard')
+    // The box follows the server, so it flips once the change is saved.
+    const optIn = page.getByLabel('Show me on the leaderboard')
+    await optIn.click()
+    await expect(optIn).not.toBeChecked()
+    await page.goto(`/u/${handle}`)
+    await expect(page.getByRole('heading', { name: 'No public profile' })).toBeVisible()
+  })
+})

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { refreshAccount, useAccount } from '../lib/account'
 import { formatUsd, formatUsdCompact } from '../lib/format'
+import { traderPath } from '../lib/route'
 import { toast } from '../lib/toasts'
 import type { Leaderboard, LeaderboardEntry, LeaderboardWindow } from '../lib/types'
 
@@ -119,7 +120,9 @@ function Row({ entry, unranked }: { entry: LeaderboardEntry; unranked?: boolean 
     <tr className={entry.you ? 'you' : undefined}>
       <td className="num">{unranked ? '—' : entry.rank <= 3 ? ['🥇', '🥈', '🥉'][entry.rank - 1] : entry.rank}</td>
       <td>
-        {entry.handle}
+        <a className="trader-link" href={traderPath(entry.handle)}>
+          {entry.handle}
+        </a>
         {entry.you && <span className="badge">you</span>}
       </td>
       <td className={`num ${pnl > 0 ? 'up' : pnl < 0 ? 'down' : ''}`}>{formatUsd(pnl, { signed: true })}</td>

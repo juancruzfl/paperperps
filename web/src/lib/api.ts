@@ -10,6 +10,7 @@ import type {
   Me,
   Order,
   OrderResult,
+  TraderProfile,
   OrderType,
   Side,
   TIF,
@@ -63,6 +64,7 @@ export const api = {
   equity: (secret: string) => request<EquityPoint[]>('/api/me/equity', { secret }),
   leaderboard: (window: LeaderboardWindow, secret?: string | null) =>
     request<Leaderboard>(`/api/leaderboard?window=${window}`, { secret: secret ?? undefined }),
+  trader: (handle: string) => request<TraderProfile>(`/api/traders/${encodeURIComponent(handle)}`),
   fills: (secret: string) => request<Fill[]>('/api/me/fills', { secret }),
   orderHistory: (secret: string) => request<Order[]>('/api/me/orders', { secret }),
   funding: (secret: string) => request<FundingPayment[]>('/api/me/funding', { secret }),

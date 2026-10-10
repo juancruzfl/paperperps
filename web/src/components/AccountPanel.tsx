@@ -5,11 +5,13 @@ import { formatNumber, formatPct, formatUsd, pxDecimals } from '../lib/format'
 import { coinStates, liquidationPrice, positionMargin, summarize, unrealizedPnl } from '../lib/margin'
 import { IsolatedMarginControl } from './MarginControls'
 import { Performance } from './Performance'
+import { ShareButton } from './ShareButton'
 import { ModifyOrderControl, PositionTPSLControl } from './OrderDialogs'
 import { isTrigger, orderTags, triggerDirection, typeLabel } from '../lib/orders'
 import type { Order } from '../lib/types'
 import { useTickers } from '../lib/market'
 import { toast } from '../lib/toasts'
+import { cardLink, closedTradeCard } from '../lib/share'
 import type { Ticker } from '../lib/types'
 
 const TABS = ['Positions', 'Open Orders', 'Trade History', 'Order History', 'Funding History', 'Performance'] as const
@@ -141,9 +143,25 @@ function Positions({ onSelectCoin }: { onSelectCoin: (coin: string) => void }) {
                 <PositionTPSLControl coin={c.coin} size={c.size} entryPx={c.entryPx} takeProfit={tp} stopLoss={sl} />
               </td>
               <td className="num">
-                <button type="button" className="small-btn" disabled={closing === c.coin} onClick={() => void close(c.coin, c.size, dec.sz)}>
-                  {closing === c.coin ? 'Closing…' : 'Market'}
-                </button>
+                <div className="row-actions">
+                  <button type="button" className="small-btn" disabled={closing === c.coin} onClick={() => void close(c.coin, c.size, dec.sz)}>
+                    {closing === c.coin ? 'Closing…' : 'Market'}
+                  </button>
+                  <ShareButton
+                    build={() => ({
+                      kind: 'position',
+                      coin: c.coin,
+                      side: c.size > 0 ? 'long' : 'short',
+                      leverage: c.leverage,
+                      roe: margin > 0 ? pnl / margin : null,
+                      pnl,
+                      entryPx: formatNumber(c.entryPx, dec.px),
+                      exitPx: formatNumber(c.markPx, dec.px),
+                      handle: me.handle,
+                      link: cardLink(me),
+                    })}
+                  />
+                </div>
               </td>
             </tr>
           )
@@ -251,6 +269,7 @@ function useHistory<K extends 'fills' | 'orders' | 'funding'>(kind: K) {
 function TradeHistory() {
   const { rows, error } = useHistory('fills')
   const tickers = useTickers()
+  const me = useAccount((s) => s.me)
   if (error) return <div className="panel-empty">Couldn’t load trade history.</div>
   if (!rows) return <div className="panel-empty">Loading…</div>
   if (rows.length === 0) return <div className="panel-empty">No trades yet.</div>
@@ -284,7 +303,28 @@ function TradeHistory() {
               <td className="num">{formatNumber(f.sz, dec.sz)}</td>
               <td className="num">{usd(Number(f.sz) * Number(f.px))}</td>
               <td className="num">{usd(Number(f.fee))}</td>
-              <td className={`num ${tone(pnl)}`}>{pnl === 0 ? '—' : usd(pnl, true)}</td>
+              <td className={`num ${tone(pnl)}`}>
+                {pnl === 0 ? (
+                  '—'
+                ) : (
+                  <span className="row-actions">
+                    {usd(pnl, true)}
+                    {me && (
+                      <ShareButton
+                        build={() =>
+                          closedTradeCard(
+                            f,
+                            me.positions.find((p) => p.coin === f.coin)?.leverage ?? null,
+                            me.handle,
+                            cardLink(me),
+                            (px) => formatNumber(px, dec.px),
+                          )
+                        }
+                      />
+                    )}
+                  </span>
+                )}
+              </td>
             </tr>
           )
         })}

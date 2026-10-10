@@ -20,12 +20,26 @@ function coinFromPath(): string {
   return m ? decodeURIComponent(m[1]) : DEFAULT_COIN
 }
 
-export type Page = 'trade' | 'leaderboard' | 'about' | 'terms' | 'privacy'
+export type Page = 'trade' | 'leaderboard' | 'about' | 'terms' | 'privacy' | 'trader'
 
 const PAGES: Page[] = ['leaderboard', 'about', 'terms', 'privacy']
 
 function pageFromPath(): Page {
+  if (location.pathname.startsWith('/u/')) return 'trader'
   return PAGES.find((p) => location.pathname.startsWith(`/${p}`)) ?? 'trade'
+}
+
+function traderFromPath(): string {
+  const m = /^\/u\/([^/]+)\/?$/.exec(location.pathname)
+  return m ? decodeURIComponent(m[1]).toLowerCase() : ''
+}
+
+/** A trader's public profile path. Navigate to it with a plain link (see interceptLinks). */
+export const traderPath = (handle: string) => `/u/${encodeURIComponent(handle)}`
+
+/** The handle in /u/<handle>, on a trader's profile page. */
+export function useTraderHandle(): string {
+  return useSyncExternalStore(subscribe, traderFromPath)
 }
 
 /**
@@ -50,7 +64,7 @@ export function usePage(): [Page, (page: Page) => void] {
   const page = useSyncExternalStore(subscribe, pageFromPath)
   const go = useCallback((next: Page) => {
     if (pageFromPath() === 'trade') lastCoin = coinFromPath() // to come back to it
-    const path = next === 'trade' ? `/trade/${encodeURIComponent(lastCoin)}` : `/${next}`
+    const path = next === 'trade' ? `/trade/${encodeURIComponent(lastCoin)}` : next === 'trader' ? '/leaderboard' : `/${next}`
     if (location.pathname !== path) history.pushState(null, '', path)
     for (const l of listeners) l()
     window.scrollTo(0, 0)

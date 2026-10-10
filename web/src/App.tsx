@@ -10,6 +10,7 @@ import { OrderBook } from './components/OrderBook'
 import { OrderForm } from './components/OrderForm'
 import { StatsBar } from './components/StatsBar'
 import { Toasts } from './components/Toasts'
+import { TraderPage } from './components/TraderPage'
 import { Trades } from './components/Trades'
 import { bootAccount, useAccount } from './lib/account'
 import { chartLines } from './lib/chartLines'
@@ -55,6 +56,7 @@ function App() {
   }, [page, coin, ticker, tickers, setCoin])
 
   useEffect(() => {
+    if (page === 'trader') return // TraderPage titles itself with the handle
     if (page !== 'trade') {
       const titles = { leaderboard: 'Leaderboard', about: 'How it works', terms: 'Terms of Service', privacy: 'Privacy Policy' }
       document.title = `${titles[page]} · PaperPerps`
@@ -78,7 +80,7 @@ function App() {
             <a
               key={p}
               href={p === 'trade' ? '/' : '/leaderboard'}
-              className={page === p ? 'active' : undefined}
+              className={page === p || (p === 'leaderboard' && page === 'trader') ? 'active' : undefined}
               aria-current={page === p ? 'page' : undefined}
               onClick={(e) => {
                 e.preventDefault()
@@ -103,6 +105,8 @@ function App() {
         <TermsPage />
       ) : page === 'privacy' ? (
         <PrivacyPage />
+      ) : page === 'trader' ? (
+        <TraderPage />
       ) : (
         <>
       <StatsBar ticker={ticker} />
