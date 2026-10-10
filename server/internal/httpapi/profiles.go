@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -38,11 +39,63 @@ type publicPosition struct {
 	MarginMode string          `json:"marginMode"`
 }
 
+var errNoProfile = errors.New("no public profile")
+
+// loadProfile builds the public profile for handle, or errNoProfile.
+func loadProfile(ctx context.Context, d Deps, handle string) (traderProfile, error) {
+	id, err := d.Accounts.PublicAccount(ctx, handle)
+	if errors.Is(err, accounts.ErrNotFound) {
+		return traderProfile{}, errNoProfile
+	}
+	if err != nil {
+		return traderProfile{}, err
+	}
+	a, err := d.Accounts.Load(ctx, id)
+	if err != nil {
+		return traderProfile{}, err
+	}
+	stats, err := d.Accounts.TraderStats(ctx, id)
+	if err != nil {
+		return traderProfile{}, err
+	}
+	points, err := d.Accounts.Equity(ctx, id, time.Now())
+	if err != nil {
+		return traderProfile{}, err
+	}
+	sum := engine.SummarizeAccount(a, d.Market)
+	p := traderProfile{
+		Handle:      a.Handle,
+		CreatedAt:   a.CreatedAt,
+		LifetimePnl: engine.Score(a.PriorPnl, a.Balance, sum.UnrealizedPnl, a.StartingBalance).StringFixed(2),
+		Resets:      a.Resets,
+		TraderStats: stats,
+		Equity:      make([]publicEquityPoint, 0, len(points)),
+		Positions:   []publicPosition{},
+	}
+	for _, pt := range points {
+		p.Equity = append(p.Equity, publicEquityPoint{pt.Time, pt.CumulativePnl})
+	}
+	for _, pos := range a.Positions {
+		if !pos.Size.IsZero() {
+			p.Positions = append(p.Positions, publicPosition{pos.Coin, pos.Size, pos.EntryPx, pos.Leverage, pos.MarginMode})
+		}
+	}
+	if d.Leaderboard != nil {
+		board, err := d.Leaderboard.Get(ctx, "all", id)
+		if err != nil {
+			return traderProfile{}, err
+		}
+		if board.You != nil && board.You.Eligible {
+			p.Rank = board.You.Rank
+		}
+	}
+	return p, nil
+}
+
 func handleTrader(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		id, err := d.Accounts.PublicAccount(ctx, r.PathValue("handle"))
-		if errors.Is(err, accounts.ErrNotFound) {
+		p, err := loadProfile(r.Context(), d, r.PathValue("handle"))
+		if errors.Is(err, errNoProfile) {
 			writeError(w, http.StatusNotFound, "trader_not_found",
 				"no public profile with that handle: it doesn't exist, or the trader is hidden from the leaderboard")
 			return
@@ -50,49 +103,6 @@ func handleTrader(d Deps) http.HandlerFunc {
 		if err != nil {
 			internalError(w, "trader profile", err)
 			return
-		}
-		a, err := d.Accounts.Load(ctx, id)
-		if err != nil {
-			internalError(w, "trader profile", err)
-			return
-		}
-		stats, err := d.Accounts.TraderStats(ctx, id)
-		if err != nil {
-			internalError(w, "trader profile", err)
-			return
-		}
-		points, err := d.Accounts.Equity(ctx, id, time.Now())
-		if err != nil {
-			internalError(w, "trader profile", err)
-			return
-		}
-		sum := engine.SummarizeAccount(a, d.Market)
-		p := traderProfile{
-			Handle:      a.Handle,
-			CreatedAt:   a.CreatedAt,
-			LifetimePnl: engine.Score(a.PriorPnl, a.Balance, sum.UnrealizedPnl, a.StartingBalance).StringFixed(2),
-			Resets:      a.Resets,
-			TraderStats: stats,
-			Equity:      make([]publicEquityPoint, 0, len(points)),
-			Positions:   []publicPosition{},
-		}
-		for _, pt := range points {
-			p.Equity = append(p.Equity, publicEquityPoint{pt.Time, pt.CumulativePnl})
-		}
-		for _, pos := range a.Positions {
-			if !pos.Size.IsZero() {
-				p.Positions = append(p.Positions, publicPosition{pos.Coin, pos.Size, pos.EntryPx, pos.Leverage, pos.MarginMode})
-			}
-		}
-		if d.Leaderboard != nil {
-			board, err := d.Leaderboard.Get(ctx, "all", id)
-			if err != nil {
-				internalError(w, "trader profile rank", err)
-				return
-			}
-			if board.You != nil && board.You.Eligible {
-				p.Rank = board.You.Rank
-			}
 		}
 		writeJSON(w, http.StatusOK, p)
 	}

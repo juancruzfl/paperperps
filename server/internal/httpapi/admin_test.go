@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -153,8 +155,13 @@ func newAdminEnv(t *testing.T) *adminEnv {
 			t.Fatal("engine did not start")
 		}
 	}
+	// The real index.html, so profile previews rewrite the tags that ship.
+	webDir := t.TempDir()
+	if index, err := os.ReadFile("../../../web/index.html"); err == nil {
+		os.WriteFile(filepath.Join(webDir, "index.html"), index, 0o644)
+	}
 	srv := httptest.NewServer(New(Deps{
-		Config: config.Config{AdminPublicKey: pub, ResetCooldown: 24 * time.Hour}, Pool: pool, Accounts: store,
+		Config: config.Config{AdminPublicKey: pub, ResetCooldown: 24 * time.Hour, WebDir: webDir}, Pool: pool, Accounts: store,
 		Engine: eng, Market: md, Hub: h, Leaderboard: leaderboard.New(pool, md, 5, 24*time.Hour, 30*time.Second),
 	}))
 	t.Cleanup(srv.Close)

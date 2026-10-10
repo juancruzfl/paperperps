@@ -94,6 +94,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/me/equity", auth(handleEquity(d.Accounts)))
 	mux.HandleFunc("GET /api/leaderboard", handleLeaderboard(d.Leaderboard, d.Accounts))
 	mux.HandleFunc("GET /api/traders/{handle}", limit(d.Profiles, ratelimit.ClientIP, handleTrader(d)))
+	mux.HandleFunc("GET /api/traders/{handle}/card.png", limit(d.Profiles, ratelimit.ClientIP, handleTraderCard(d)))
 	mux.HandleFunc("GET /api/me/orders", auth(handleHistory("order history", d.Accounts.OrderHistory)))
 	mux.HandleFunc("GET /api/me/fills", auth(handleHistory("fills", d.Accounts.Fills)))
 	mux.HandleFunc("GET /api/me/funding", auth(handleHistory("funding", d.Accounts.Funding)))
@@ -109,7 +110,7 @@ func New(d Deps) http.Handler {
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { notFound(w) })
 
-	mux.Handle("/", spaHandler(cfg.WebDir))
+	mux.Handle("/", spaHandler(cfg.WebDir, profilePreview(d)))
 	return logRequests(redirectWWW(mux))
 }
 

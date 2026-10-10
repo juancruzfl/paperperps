@@ -164,6 +164,7 @@ Built (M1–M2):
 | DELETE | `/api/me` | `{confirm: "delete"}` permanently deletes the account and all its data (Privacy Policy) |
 | GET | `/api/me/equity` | Equity and lifetime PnL snapshots: every 5 min for 48h, hourly back to 30 days |
 | GET | `/api/leaderboard?window=24h\|7d\|30d\|all` | Top 100, plus your own standing when authenticated |
+| GET | `/api/traders/{handle}/card.png` | The profile's 1200×630 share card, for link previews. `/u/<handle>` pages carry it in their Open Graph tags |
 | GET | `/api/traders/{handle}` | Public profile: lifetime PnL, rank, win rate, best trade, volume, PnL history, open positions. Only for accounts shown on the leaderboard; 404 `trader_not_found` otherwise |
 | WS | `/ws` | Topics: `markets`, `book:<coin>`, `trades:<coin>`, and private `account:<id>` (needs `token`) |
 

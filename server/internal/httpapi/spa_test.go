@@ -15,7 +15,7 @@ func TestSPAHandler(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "assets", "index-abc123.js"), "console.log(1)")
 	writeFile(t, filepath.Join(dir, "favicon.svg"), "<svg/>")
 
-	h := spaHandler(dir)
+	h := spaHandler(dir, nil)
 	tests := []struct {
 		path, wantBody, wantCache string
 	}{
@@ -48,7 +48,7 @@ func TestSPAHandlerBlocksTraversal(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "secret.txt"), "nope")
 
 	rec := httptest.NewRecorder()
-	spaHandler(filepath.Join(dir, "app")).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/../secret.txt", nil))
+	spaHandler(filepath.Join(dir, "app"), nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/../secret.txt", nil))
 	if strings.Contains(rec.Body.String(), "nope") {
 		t.Fatalf("served a file outside WEB_DIR (status %d)", rec.Code)
 	}
@@ -56,7 +56,7 @@ func TestSPAHandlerBlocksTraversal(t *testing.T) {
 
 func TestSPAHandlerWithoutBuild(t *testing.T) {
 	rec := httptest.NewRecorder()
-	spaHandler("").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	spaHandler("", nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
