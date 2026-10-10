@@ -151,6 +151,8 @@ type account struct {
 	priorPnl        decimal.Decimal // PnL of runs ended by resets
 	lastResetAt     *time.Time
 	dirty           bool // changed since the last equity snapshot
+	// suspended accounts may only place reduce-only orders (SetSuspended).
+	suspended bool
 }
 
 type event struct {
@@ -426,6 +428,7 @@ func (e *Engine) account(ctx context.Context, id uuid.UUID) (*account, error) {
 		startingBalance: st.StartingBalance,
 		priorPnl:        st.PriorPnl,
 		lastResetAt:     st.LastResetAt,
+		suspended:       st.Suspension != nil,
 	}
 	for _, p := range st.Positions {
 		a.positions[p.Coin] = &position{

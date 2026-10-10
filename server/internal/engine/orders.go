@@ -205,6 +205,10 @@ func (e *Engine) placeOrder(ctx context.Context, accountID uuid.UUID, req OrderR
 	if err != nil {
 		return OrderResult{}, err
 	}
+	if a.suspended && !req.ReduceOnly {
+		return OrderResult{}, reject("account_suspended",
+			"this account is suspended: you can close positions (reduce-only orders) but not open new ones")
+	}
 	pos := a.position(req.Coin, e.defaultLeverage(ticker))
 	buy := req.Side == SideBuy
 	if req.ReduceOnly && reducible(pos, buy).IsZero() {

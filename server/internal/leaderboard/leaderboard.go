@@ -66,6 +66,7 @@ type standing struct {
 	entry     Entry
 	createdAt time.Time
 	optIn     bool
+	hidden    bool // by a moderator, or suspended
 }
 
 type snapshot struct {
@@ -143,6 +144,8 @@ func (s *Service) Get(ctx context.Context, window string, viewer uuid.UUID) (Boa
 
 func (s *Service) ineligible(st standing, now time.Time) string {
 	switch {
+	case st.hidden:
+		return "a moderator has hidden this account from the leaderboard"
 	case !st.optIn:
 		return "you've hidden yourself from the leaderboard"
 	case st.entry.Trades < s.minTrades:
@@ -204,6 +207,7 @@ func (s *Service) compute(ctx context.Context, window string) (snapshot, error) 
 	var order []uuid.UUID
 	rows, err := s.pool.Query(ctx, `
 		SELECT a.id, a.handle, a.created_at, a.leaderboard_opt_in,
+			a.leaderboard_banned OR a.suspended_at IS NOT NULL,
 			(SELECT sum(r.balance + r.locked_upnl - r.starting_balance) FROM runs r WHERE r.account_id = a.id),
 			(SELECT count(*) - 1 FROM runs r WHERE r.account_id = a.id),
 			f.trades, f.volume
@@ -217,7 +221,7 @@ func (s *Service) compute(ctx context.Context, window string) (snapshot, error) 
 	for rows.Next() {
 		st := &standing{}
 		var realized decimal.Decimal
-		if err := rows.Scan(&st.id, &st.entry.Handle, &st.createdAt, &st.optIn, &realized,
+		if err := rows.Scan(&st.id, &st.entry.Handle, &st.createdAt, &st.optIn, &st.hidden, &realized,
 			&st.entry.Resets, &st.entry.Trades, &st.entry.Volume); err != nil {
 			rows.Close()
 			return snapshot{}, fmt.Errorf("leaderboard accounts: %w", err)

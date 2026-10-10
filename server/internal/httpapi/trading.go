@@ -176,6 +176,8 @@ func handleUpdateProfile(store *accounts.Store, lb *leaderboard.Service) http.Ha
 				"handles are 3–24 lowercase letters, digits, - or _, and can't contain reserved words")
 		case errors.Is(err, accounts.ErrHandleTaken):
 			writeError(w, http.StatusConflict, "handle_taken", "that handle is taken")
+		case errors.Is(err, accounts.ErrSuspended):
+			writeError(w, http.StatusForbidden, "account_suspended", "this account is suspended, so its handle can't be changed")
 		case err != nil:
 			internalError(w, "update profile", err)
 		default:

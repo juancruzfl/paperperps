@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -20,16 +21,26 @@ import (
 // PnL at the moment of reset is locked into the leaderboard score, so a reset can't erase a
 // losing trade.
 func (e *Engine) ResetAccount(ctx context.Context, accountID uuid.UUID) error {
-	return e.do(ctx, func(ctx context.Context) error { return e.resetAccount(ctx, accountID) })
+	return e.do(ctx, func(ctx context.Context) error { return e.resetAccount(ctx, accountID, nil) })
 }
 
-func (e *Engine) resetAccount(ctx context.Context, accountID uuid.UUID) error {
+// AdminReset resets the account for a moderator, ignoring the cooldown and suspension, and
+// records it in the audit log.
+func (e *Engine) AdminReset(ctx context.Context, accountID uuid.UUID, reason string) error {
+	return e.do(ctx, func(ctx context.Context) error { return e.resetAccount(ctx, accountID, &reason) })
+}
+
+// resetAccount resets the account. adminReason is set when a moderator does it.
+func (e *Engine) resetAccount(ctx context.Context, accountID uuid.UUID, adminReason *string) error {
 	a, err := e.account(ctx, accountID)
 	if err != nil {
 		return err
 	}
 	now := e.now()
-	if a.lastResetAt != nil {
+	if adminReason == nil && a.suspended {
+		return reject("account_suspended", "this account is suspended, so it can't be reset")
+	}
+	if adminReason == nil && a.lastResetAt != nil {
 		if next := a.lastResetAt.Add(e.cfg.ResetCooldown); now.Before(next) {
 			return reject("reset_cooldown", "you can reset again in %s", roundDuration(next.Sub(now)))
 		}
@@ -78,6 +89,9 @@ func (e *Engine) resetAccount(ctx context.Context, accountID uuid.UUID) error {
 		if _, err := tx.Exec(ctx, `UPDATE accounts SET current_run_id = $2, last_reset_at = $3 WHERE id = $1`,
 			a.id, newRun, now); err != nil {
 			return fmt.Errorf("switch run: %w", err)
+		}
+		if adminReason != nil {
+			return recordAdmin(ctx, tx, "reset", a.id, *adminReason, map[string]any{"lockedUpnl": locked})
 		}
 		return nil
 	})
@@ -183,17 +197,34 @@ func (e *Engine) pruneSnapshots(ctx context.Context) {
 // positions, orders, fills, ledger, funding and equity snapshots (docs: Privacy Policy).
 // It runs on the engine so the account's open orders leave memory in the same step.
 func (e *Engine) DeleteAccount(ctx context.Context, accountID uuid.UUID) error {
-	return e.do(ctx, func(ctx context.Context) error { return e.deleteAccount(ctx, accountID) })
+	return e.do(ctx, func(ctx context.Context) error { return e.deleteAccount(ctx, accountID, nil) })
 }
 
-func (e *Engine) deleteAccount(ctx context.Context, accountID uuid.UUID) error {
-	// Every table that refers to the account cascades from it.
-	tag, err := e.pool.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
+// AdminDelete deletes the account for a moderator and records it in the audit log. The
+// log keeps the account's ID and handle, nothing else.
+func (e *Engine) AdminDelete(ctx context.Context, accountID uuid.UUID, reason string) error {
+	return e.do(ctx, func(ctx context.Context) error { return e.deleteAccount(ctx, accountID, &reason) })
+}
+
+func (e *Engine) deleteAccount(ctx context.Context, accountID uuid.UUID, adminReason *string) error {
+	err := pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
+		if adminReason != nil {
+			if err := recordAdmin(ctx, tx, "delete", accountID, *adminReason, nil); err != nil {
+				return err
+			}
+		}
+		// Every table that refers to the account cascades from it.
+		tag, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
+		if err != nil {
+			return fmt.Errorf("delete account: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return reject("not_found", "no such account")
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("delete account: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return reject("not_found", "no such account")
+		return err
 	}
 	if a, ok := e.accounts[accountID]; ok {
 		for _, o := range a.orders {
@@ -203,4 +234,74 @@ func (e *Engine) deleteAccount(ctx context.Context, accountID uuid.UUID) error {
 	}
 	slog.Info("account deleted", "account", accountID)
 	return nil
+}
+
+// --- moderation ---
+
+// SetSuspended suspends the account, or lifts a suspension, and records it in the audit
+// log. A suspended account can't open positions: its open orders that could add to a
+// position are cancelled, and it may only place reduce-only orders from then on, so it can
+// still close what it holds. It also can't reset or change its handle.
+func (e *Engine) SetSuspended(ctx context.Context, accountID uuid.UUID, suspended bool, reason string) error {
+	return e.do(ctx, func(ctx context.Context) error { return e.setSuspended(ctx, accountID, suspended, reason) })
+}
+
+func (e *Engine) setSuspended(ctx context.Context, accountID uuid.UUID, suspended bool, reason string) error {
+	a, err := e.account(ctx, accountID)
+	if errors.Is(err, accounts.ErrNotFound) {
+		return reject("not_found", "no such account")
+	}
+	if err != nil {
+		return err
+	}
+	action := "unsuspend"
+	if suspended {
+		action = "suspend"
+	}
+	err = pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
+		if suspended {
+			if _, err := tx.Exec(ctx, `UPDATE accounts SET suspended_at = coalesce(suspended_at, $2), suspend_reason = $3
+				WHERE id = $1`, a.id, e.now(), reason); err != nil {
+				return fmt.Errorf("suspend: %w", err)
+			}
+		} else if _, err := tx.Exec(ctx, `UPDATE accounts SET suspended_at = NULL, suspend_reason = NULL WHERE id = $1`,
+			a.id); err != nil {
+			return fmt.Errorf("unsuspend: %w", err)
+		}
+		return recordAdmin(ctx, tx, action, a.id, reason, nil)
+	})
+	if err != nil {
+		return err
+	}
+	a.suspended = suspended
+	if suspended {
+		var cancel []*accounts.Order
+		for _, o := range a.orders {
+			if !o.ReduceOnly {
+				cancel = append(cancel, o)
+			}
+		}
+		if len(cancel) > 0 {
+			if err := e.closeOrders(ctx, a, cancel, "cancelled: account suspended"); err != nil {
+				return fmt.Errorf("cancel orders of suspended account: %w", err)
+			}
+		}
+	}
+	e.publish(a.id, AccountEvent{Type: action})
+	return nil
+}
+
+// recordAdmin writes an audit log entry for an admin action on an account, inside the
+// transaction that makes the change.
+func recordAdmin(ctx context.Context, tx pgx.Tx, action string, accountID uuid.UUID, reason string, detail map[string]any) error {
+	var handle string
+	if err := tx.QueryRow(ctx, `SELECT handle FROM accounts WHERE id = $1`, accountID).Scan(&handle); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return reject("not_found", "no such account")
+		}
+		return fmt.Errorf("read handle for audit: %w", err)
+	}
+	return accounts.RecordAction(ctx, tx, accounts.AdminAction{
+		Action: action, AccountID: &accountID, Handle: &handle, Reason: reason, Detail: detail,
+	})
 }

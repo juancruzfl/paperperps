@@ -134,6 +134,8 @@ export type Me = {
   handle: string
   createdAt: string
   leaderboardOptIn: boolean
+  leaderboardHidden: boolean // by a moderator; opting in doesn't undo it
+  suspension: { at: string; reason: string } | null
   lastResetAt: string | null
   resets: number
   runId: string

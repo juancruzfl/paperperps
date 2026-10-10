@@ -34,6 +34,8 @@ type Deps struct {
 	// NewAccounts limits account creation per IP; Trading limits trading calls per account.
 	NewAccounts *ratelimit.Limiter
 	Trading     *ratelimit.Limiter
+	// Admin limits admin API calls per IP, before signatures are checked.
+	Admin *ratelimit.Limiter
 }
 
 // New builds the HTTP handler.
@@ -100,9 +102,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/orders/{id}/modify", trade(handleModifyOrder(d.Engine)))
 	mux.HandleFunc("PUT /api/me/tpsl/{coin}", trade(handleSetPositionTPSL(d.Engine)))
 
-	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not_found"})
-	})
+	mountAdmin(mux, d)
+
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { notFound(w) })
 
 	mux.Handle("/", spaHandler(cfg.WebDir))
 	return logRequests(redirectWWW(mux))

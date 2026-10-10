@@ -114,6 +114,8 @@ func run() error {
 			// 5 new accounts per IP per hour; 10 trading calls per second per account, bursts of 30.
 			NewAccounts: ratelimit.New(rate.Every(12*time.Minute), 5),
 			Trading:     ratelimit.New(10, 30),
+			// Admin calls, per IP: 1 per second, bursts of 20.
+			Admin: ratelimit.New(1, 20),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,

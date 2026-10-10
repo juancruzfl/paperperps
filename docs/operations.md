@@ -31,6 +31,9 @@ Railway doesn't watch application health for you, so set up two alerts:
    |---|---|---|
    | `market_data_stale` | ERROR | The feed is disconnected or quiet for 60s+, or a market went stale. Trading on stale markets is halted. |
    | `market_data_stale_resolved` | INFO | Recovered. |
+   | `admin_action` | WARN | Someone changed an account through the admin API. If it wasn't you, see [Admin key compromised](#admin-key-compromised). |
+   | `admin_auth_failed` | WARN | A request carried admin signature headers but failed the check (wrong key, expired, replayed). A few from your own clock drift are harmless; a stream of them means someone is trying. |
+   | `admin_enabled` | WARN | Logged at startup when `ADMIN_PUBLIC_KEY` is set. |
 
    Other ERROR lines worth a look: `engine: risk check`, `engine: funding`,
    `engine: fill resting order`, `engine: equity snapshots`.
@@ -107,6 +110,90 @@ on the same machine.
 - **Equity snapshots** are kept 35 days and pruned daily. Each account keeps its last
   older snapshot, since that is a leaderboard baseline.
 
+## Admin tool
+
+`paperperps-admin` moderates accounts from your machine: rename offensive handles, hide
+accounts from the leaderboard, suspend, force-reset or delete them, and read the audit log.
+It calls `/api/admin/*` on the live server.
+
+### How it's secured
+
+- **Off unless configured.** The routes are only registered when `ADMIN_PUBLIC_KEY` is set.
+- **Signed requests, not a password.** Every request is signed with an Ed25519 private key
+  that only exists on your machine. Railway holds only the public key, which can verify
+  signatures but not make them, so leaking Railway's variables doesn't grant admin access.
+  The signature covers the method, host, path and query, body, a timestamp and a random nonce.
+- **No replays.** Signatures expire after 60 seconds, and each nonce works once
+  (`admin_nonces` table, shared by every instance).
+- **Invisible to probing.** A missing, wrong, expired or replayed signature gets exactly the
+  same 404 as any unknown `/api/` path, also for wrong HTTP methods.
+  `TestAdminRoutesAreHidden` checks every route in `adminRoutes`, including future ones.
+- **Rate limited** per IP (1/s, bursts of 20) before the signature is checked.
+- **Small blast radius.** There's no "set balance", SQL console or bulk action. Each call
+  names one account.
+- **Audited.** Every change writes an `admin_actions` row (action, account ID, handle at the
+  time, reason) in the same transaction as the change, and logs `alert=admin_action`. A
+  reason is required.
+- **No browser UI**, so a bug in the site can't steal or use admin credentials.
+
+The real perimeter is your accounts: keep 2FA on Railway and GitHub (whoever can push to
+`main` or edit Railway can run any code in production) and protect `main` with required CI.
+
+### Set up
+
+```sh
+make admin                       # builds bin/paperperps-admin
+./bin/paperperps-admin keygen    # writes ~/.config/paperperps/admin.key (mode 600), prints the public key
+```
+
+Set `ADMIN_PUBLIC_KEY` on the Railway service to the printed value and redeploy. Back up the
+private key in your password manager. To keep it off disk entirely, store it there only and
+run commands with `PAPERPERPS_ADMIN_KEY="$(pass show paperperps/admin)" ./bin/paperperps-admin …`
+(any password manager CLI works), then delete the key file.
+
+The CLI talks to `https://paperperps.lol` unless `PAPERPERPS_URL` says otherwise. It refuses
+plain `http://` except for localhost. Your clock must be within a minute of the server's.
+
+### Commands
+
+```sh
+paperperps-admin find narwhal                          # search handles (or an exact account ID)
+paperperps-admin show swift-narwhal-024                # balance, PnL, recent fills, past admin actions
+paperperps-admin rename swift-narwhal-024 --reason "slur in handle"          # random new handle
+paperperps-admin rename swift-narwhal-024 trader42 --reason "impersonation"  # or a chosen one
+paperperps-admin hide swift-narwhal-024 --reason "wash trading"              # off the leaderboard
+paperperps-admin suspend swift-narwhal-024 --reason "multi-accounting"
+paperperps-admin reset swift-narwhal-024 --reason "exploited a pricing bug"
+paperperps-admin delete swift-narwhal-024 --reason "illegal content"         # asks you to type the handle
+paperperps-admin log --limit 20
+```
+
+`unhide` and `unsuspend` undo `hide` and `suspend`. Add `--json` to `find`, `show` and `log`
+for raw output.
+
+What each action does to the account:
+
+| Action | Effect |
+|---|---|
+| rename | New handle. The user can change it again unless suspended. |
+| hide | Off every leaderboard. Their "show me" toggle can't bring it back; they see a note saying a moderator hid them. |
+| suspend | Open orders that could add to a position are cancelled. From then on only reduce-only orders: they can close what they hold but not open anything, reset, or change their handle. Also off the leaderboard. A banner tells them, with the contact address. |
+| reset | A fresh run, like a self-reset, ignoring the cooldown and suspension. The ended run's PnL still counts toward their score. |
+| delete | Same as self-serve deletion. The audit log keeps the account ID, handle and reason. |
+
+Suspend, reset and delete go through the trading engine; if it's restarting you get a 503,
+so try again in a few seconds.
+
+### Admin key compromised
+
+1. Delete `ADMIN_PUBLIC_KEY` in Railway (or replace it with a new key's) and redeploy. Old
+   signatures stop working as soon as the new container is up.
+2. Read the damage: `SELECT * FROM admin_actions ORDER BY id DESC` with `railway connect`,
+   or `paperperps-admin log` with the new key.
+3. Undo what you can (`unsuspend`, `unhide`, `rename`). Resets and deletions can't be undone
+   except from a backup.
+4. Work out how the key leaked before making a new one.
+
 ## Useful commands
 
 ```sh
@@ -139,4 +226,5 @@ them true, or update the documents and their effective date first.
 | **Self-serve deletion is immediate** | `DELETE /api/me` cascades over every table that references `accounts`. A new table with account data needs `ON DELETE CASCADE` too; `TestDeleteAccountRemovesEverything` checks the list. |
 | **Deleted data leaves backups within 30 days** | Don't keep `make backup` dumps, or Railway backups, longer than 30 days. |
 | **Equity snapshots are kept 35 days** | `engine.SnapshotRetention`. |
+| **Moderation records outlive deleted accounts** | `admin_actions` has no foreign key to `accounts` on purpose. It keeps only account ID, handle, action and reason; keep it that way (no balances, no trade data). |
 | **Service providers: Railway and Porkbun** | Name any new provider that handles requests or data in the Privacy Policy. |

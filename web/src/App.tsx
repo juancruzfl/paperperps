@@ -13,6 +13,7 @@ import { Toasts } from './components/Toasts'
 import { Trades } from './components/Trades'
 import { bootAccount, useAccount } from './lib/account'
 import { chartLines } from './lib/chartLines'
+import { LEGAL_CONTACT } from './lib/legal'
 import { fetchStatus, useBook, useConnection, useTickers, useTrades } from './lib/market'
 import { DEFAULT_COIN, useCoin, usePage } from './lib/route'
 import type { Status } from './lib/types'
@@ -92,6 +93,7 @@ function App() {
       </header>
       <RecoveryNotice />
       <ConnectionBanner />
+      <SuspensionBanner />
 
       {page === 'leaderboard' ? (
         <LeaderboardPage />
@@ -152,6 +154,19 @@ function BookPanel({ coin, szDecimals }: { coin: string; szDecimals: number }) {
         <Trades trades={trades} szDecimals={szDecimals} coin={coin} />
       )}
     </section>
+  )
+}
+
+/** Explains what a suspended account can still do. */
+function SuspensionBanner() {
+  const suspension = useAccount((s) => s.me?.suspension)
+  if (!suspension) return null
+  return (
+    <div className="suspension-banner" role="alert">
+      This account is suspended{suspension.reason ? ` (${suspension.reason})` : ''}. You can close positions and
+      cancel orders, but not open new positions, reset or change your handle. Questions:{' '}
+      <a href={`mailto:${LEGAL_CONTACT}`}>{LEGAL_CONTACT}</a>
+    </div>
   )
 }
 
