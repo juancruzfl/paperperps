@@ -158,6 +158,7 @@ plain `http://` except for localhost. Your clock must be within a minute of the 
 
 ```sh
 paperperps-admin find narwhal                          # search handles (or an exact account ID)
+paperperps-admin flagged                               # existing handles the profanity filter rejects
 paperperps-admin show swift-narwhal-024                # balance, PnL, recent fills, past admin actions
 paperperps-admin rename swift-narwhal-024 --reason "slur in handle"          # random new handle
 paperperps-admin rename swift-narwhal-024 trader42 --reason "impersonation"  # or a chosen one
@@ -193,6 +194,25 @@ so try again in a few seconds.
 3. Undo what you can (`unsuspend`, `unhide`, `rename`). Resets and deletions can't be undone
    except from a backup.
 4. Work out how the key leaked before making a new one.
+
+## Handle filter
+
+New handles, and admin renames, go through a profanity filter
+(`server/internal/accounts/profanity.go`). It sees through digits for letters (`sh1t`),
+separators (`f-u-c-k`) and stretched letters (`fuuuck`). Short terms that occur inside
+ordinary words (ass, rape, spic) are blocked only as whole words, so "classic", "grape" and
+"spice" still work. Users get `offensive_handle` with a plain explanation.
+
+The filter only checks handles when they're set. After adding terms, or once after the
+first deploy with the filter, run `paperperps-admin flagged` and rename what it lists.
+`TestOffensiveAllows` lists words that must keep working; add to it when you add a term.
+
+## Dependency scans
+
+`.github/workflows/security.yml` runs `govulncheck` on the server and `npm audit` on the
+frontend's shipped dependencies, on every push and pull request and every Monday. GitHub
+emails you when the weekly run fails: update the named module (`go get -u <module>` in
+`server/`, or `npm update <package>` in `web/`) and redeploy.
 
 ## Useful commands
 
