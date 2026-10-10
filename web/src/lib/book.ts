@@ -40,3 +40,32 @@ export function computeDepth(book: Book, rows: number): Depth {
   }
   return { asks, bids, spread, spreadRatio }
 }
+
+/** Groupings the server offers, as significant figures (market.GroupedSigFigs). */
+export const GROUPED_SIG_FIGS = [4, 3, 2] as const
+
+/** The price step of a grouping to sigFigs significant figures, at price px. */
+export function groupStep(px: number, sigFigs: number): number {
+  if (!(px > 0)) return 0
+  return 10 ** (Math.floor(Math.log10(px)) - sigFigs + 1)
+}
+
+/** Decimal places a price step needs: 0.01 → 2, 10 → 0. */
+export function stepDecimals(step: number): number {
+  return step >= 1 ? 0 : Math.round(-Math.log10(step))
+}
+
+export type Grouping = { sigFigs: number; step: number }
+
+/**
+ * The steps to offer for a market: the raw book (sigFigs 0, at the market's own price
+ * step), then each server grouping that's coarser than it.
+ */
+export function groupings(px: number, rawStep: number): Grouping[] {
+  const out: Grouping[] = [{ sigFigs: 0, step: rawStep }]
+  for (const n of GROUPED_SIG_FIGS) {
+    const step = groupStep(px, n)
+    if (step > rawStep * 1.5) out.push({ sigFigs: n, step })
+  }
+  return out
+}

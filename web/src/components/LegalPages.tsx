@@ -172,6 +172,11 @@ export function PrivacyPage() {
         <li>
           <code>paperperps.chartInterval</code>: the chart timeframe you picked.
         </li>
+        <li>
+          <code>paperperps.sounds</code> and <code>paperperps.desktopAlerts</code>: whether you want a sound and desktop
+          notifications for fills and liquidations. Notifications are shown by your browser; nothing is sent to us or anyone
+          else.
+        </li>
       </ul>
       <p>Clearing your browser’s site data removes them, and with the key gone you lose access to the account.</p>
 

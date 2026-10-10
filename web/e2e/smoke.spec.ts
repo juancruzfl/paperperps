@@ -97,6 +97,15 @@ test('phone layout has no sideways scroll @phone', async ({ page }) => {
   await expect(page.getByRole('button', { name: /Buy \/ Long|Enter a size/ })).toBeVisible()
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(overflow).toBeLessThanOrEqual(0)
+
+  // Chart, order book and trades take turns above the order form.
+  const tabs = page.getByRole('tablist', { name: 'Market view' })
+  await expect(page.locator('.book-row.bid').first()).toBeHidden()
+  await tabs.getByRole('tab', { name: 'Order Book' }).click()
+  await expect(page.locator('.book-row.bid').first()).toBeVisible()
+  await expect(page.locator('.chart-panel')).toBeHidden()
+  await tabs.getByRole('tab', { name: 'Chart' }).click()
+  await expect(page.locator('.chart-panel')).toBeVisible()
 })
 
 test('a trader shares a position and has a public profile', async ({ page, request }) => {

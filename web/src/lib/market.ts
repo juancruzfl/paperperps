@@ -24,11 +24,14 @@ function onTickers(msg: ServerMessage) {
   useMarketStore.setState({ tickers: msg.data as Ticker[] })
 }
 
+// Books are kept by topic: book:BTC is the raw book, book:BTC@3 a grouped one.
 function onBook(msg: ServerMessage) {
   const book = msg.data as Book | null
   if (!book) return
-  useMarketStore.setState((s) => ({ books: { ...s.books, [book.coin]: book } }))
+  useMarketStore.setState((s) => ({ books: { ...s.books, [msg.topic]: book } }))
 }
+
+const bookTopic = (coin: string, sigFigs: number) => (sigFigs ? `book:${coin}@${sigFigs}` : `book:${coin}`)
 
 function onTrades(msg: ServerMessage) {
   const coin = msg.topic.slice('trades:'.length)
@@ -57,9 +60,14 @@ export function useTicker(coin: string): Ticker | undefined {
   return useMarketStore((s) => s.tickers.find((t) => t.coin === coin))
 }
 
-export function useBook(coin: string): Book | undefined {
-  useTopic(`book:${coin}`, onBook)
-  return useMarketStore((s) => s.books[coin])
+/**
+ * The order book for coin. sigFigs, if set, is a grouping the server offers for display
+ * (prices to that many significant figures); orders always match against the raw book.
+ */
+export function useBook(coin: string, sigFigs = 0): Book | undefined {
+  const topic = bookTopic(coin, sigFigs)
+  useTopic(topic, onBook)
+  return useMarketStore((s) => s.books[topic])
 }
 
 export function useTrades(coin: string): Trade[] | undefined {

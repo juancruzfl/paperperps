@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { desktopPermission, setDesktop, setSounds, useAlertPrefs } from '../lib/alerts'
 import { api, ApiError } from '../lib/api'
 import {
   dismissRecoveryNotice,
@@ -74,6 +75,7 @@ export function AccountMenu() {
           >
             Restore another account…
           </button>
+          <AlertToggles />
           <button
             type="button"
             role="menuitem"
@@ -102,6 +104,26 @@ export function AccountMenu() {
       <RestoreDialog dialogRef={restoreRef} />
       <ResetDialog dialogRef={resetRef} />
       <DeleteDialog dialogRef={deleteRef} />
+    </div>
+  )
+}
+
+/** Sound and desktop-notification switches for fills and liquidations. */
+function AlertToggles() {
+  const { sounds, desktop } = useAlertPrefs()
+  return (
+    <div className="menu-section" role="group" aria-label="Alerts">
+      <p className="menu-heading">Fill and liquidation alerts</p>
+      <label className="check menu-check">
+        <input type="checkbox" checked={sounds} onChange={(e) => setSounds(e.target.checked)} />
+        Play a sound
+      </label>
+      {desktopPermission() !== 'unsupported' && (
+        <label className="check menu-check">
+          <input type="checkbox" checked={desktop} onChange={(e) => void setDesktop(e.target.checked)} />
+          Notify me when this tab is in the background
+        </label>
+      )}
     </div>
   )
 }
