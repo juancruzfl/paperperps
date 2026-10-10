@@ -108,6 +108,11 @@ func TestLeaderboard(t *testing.T) {
 	dave := s.account("dave", 48, 5, "1500")   // +500 but opted out
 	s.exec(`UPDATE accounts SET leaderboard_opt_in = false WHERE id = $1`, dave)
 	erin := s.account("erin", 2, 5, "1300") // +300 but 2 hours old
+	// frank and gina would lead, but a moderator hid one and suspended the other.
+	frank := s.account("frank", 48, 5, "3000")
+	s.exec(`UPDATE accounts SET leaderboard_banned = true WHERE id = $1`, frank)
+	gina := s.account("gina", 48, 5, "4000")
+	s.exec(`UPDATE accounts SET suspended_at = now(), suspend_reason = 'x' WHERE id = $1`, gina)
 	_, _ = carol, erin
 
 	lb := New(pool, marks{"BTC": "82000"}, 5, 24*time.Hour, time.Minute)
@@ -146,6 +151,8 @@ func TestLeaderboard(t *testing.T) {
 		carol:            "make 2 more trade(s) to appear",
 		dave:             "you've hidden yourself from the leaderboard",
 		erin:             "accounts appear once they're 24 hours old",
+		frank:            "a moderator has hidden this account from the leaderboard",
+		gina:             "a moderator has hidden this account from the leaderboard",
 		accounts.NewID(): "make at least 5 trades to appear",
 	} {
 		b, _ := lb.Get(ctx, "all", viewer)

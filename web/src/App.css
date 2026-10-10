@@ -1162,6 +1162,20 @@ button.link:hover {
   background: var(--warn);
 }
 
+.suspension-banner {
+  padding: 8px 16px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text);
+  background: rgba(255, 92, 122, 0.16);
+  border-bottom: 1px solid var(--short);
+}
+
+.suspension-banner a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .page {
   flex: 1;
   width: 100%;

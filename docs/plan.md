@@ -169,6 +169,11 @@ Built (M1–M2):
 There is no separate restore endpoint. A recovery link (`/restore#<secret>`) just makes the
 browser use that secret.
 
+Admin endpoints (`/api/admin/accounts`, `/api/admin/accounts/{id}` and its `rename`,
+`leaderboard`, `suspension`, `reset` and `delete` actions, `/api/admin/actions`) exist only
+when `ADMIN_PUBLIC_KEY` is set, and need Ed25519-signed requests from the
+`paperperps-admin` CLI. See docs/operations.md, "Admin tool".
+
 Auth: `Authorization: Bearer <secret>`. Only `sha256(secret)` is stored. Errors are
 `{error: <code>, message}`. Order rejections use codes such as `insufficient_margin`,
 `min_notional`, `invalid_price`, `invalid_size`, `market_stale` and `no_liquidity`, and
@@ -658,3 +663,10 @@ All open questions are resolved.
   - Domain: `paperperps.lol`, not yet purchased.
   - Deployment deferred.
   - **Market data defaults to mainnet** after the side-by-side measurement in M1.
+- **2026-10-10:**
+  - Moderation through a signed admin API and a local CLI (`paperperps-admin`), not direct
+    database access: suspend, reset and delete go through the engine so memory and database
+    stay in step. Ed25519 signatures rather than a shared token, so Railway only holds a
+    public key. Every action is audited.
+  - Suspended accounts may only reduce positions, so a suspension never traps anyone in an
+    open position.

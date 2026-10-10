@@ -167,6 +167,11 @@ type FundingPayment struct {
 	Amount      decimal.Decimal `json:"amount"`
 }
 
+type Suspension struct {
+	At     time.Time `json:"at"`
+	Reason string    `json:"reason"`
+}
+
 // Account is an account's current trading state.
 type Account struct {
 	ID               uuid.UUID  `json:"accountId"`
@@ -175,6 +180,12 @@ type Account struct {
 	LeaderboardOptIn bool       `json:"leaderboardOptIn"`
 	LastResetAt      *time.Time `json:"lastResetAt"`
 	Resets           int        `json:"resets"`
+	// LeaderboardHidden means a moderator took the account off the leaderboard; opting in
+	// doesn't bring it back.
+	LeaderboardHidden bool `json:"leaderboardHidden"`
+	// Suspension is set while a moderator has suspended the account: it can close
+	// positions but not open new ones.
+	Suspension *Suspension `json:"suspension"`
 
 	RunID           uuid.UUID       `json:"runId"`
 	StartingBalance decimal.Decimal `json:"startingBalance"` // of the current run
@@ -201,20 +212,27 @@ func scanOrder(row pgx.Row) (Order, error) {
 // Load reads an account's current state. q may be a transaction.
 func Load(ctx context.Context, q Querier, id uuid.UUID) (Account, error) {
 	a := Account{ID: id, Positions: []Position{}, OpenOrders: []Order{}}
+	var suspendedAt *time.Time
+	var suspendReason string
 	err := q.QueryRow(ctx, `
 		SELECT a.handle, a.created_at, a.leaderboard_opt_in, a.last_reset_at,
+			a.leaderboard_banned, a.suspended_at, coalesce(a.suspend_reason, ''),
 			r.id, r.starting_balance, r.balance,
 			coalesce((SELECT sum(p.balance + p.locked_upnl - p.starting_balance) FROM runs p
 				WHERE p.account_id = a.id AND p.id <> r.id), 0),
 			(SELECT count(*) - 1 FROM runs p WHERE p.account_id = a.id)
 		FROM accounts a JOIN runs r ON r.id = a.current_run_id
 		WHERE a.id = $1`, id).Scan(&a.Handle, &a.CreatedAt, &a.LeaderboardOptIn, &a.LastResetAt,
+		&a.LeaderboardHidden, &suspendedAt, &suspendReason,
 		&a.RunID, &a.StartingBalance, &a.Balance, &a.PriorPnl, &a.Resets)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Account{}, ErrNotFound
 	}
 	if err != nil {
 		return Account{}, fmt.Errorf("load account: %w", err)
+	}
+	if suspendedAt != nil {
+		a.Suspension = &Suspension{At: *suspendedAt, Reason: suspendReason}
 	}
 
 	rows, err := q.Query(ctx, `
@@ -302,8 +320,11 @@ func NewID() uuid.UUID { return mustV7() }
 var (
 	ErrHandleTaken   = errors.New("handle taken")
 	ErrHandleInvalid = errors.New("invalid handle")
-	handlePattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{2,23}$`)
-	reservedHandles  = []string{"admin", "administrator", "support", "moderator", "staff", "official",
+	// ErrSuspended: suspended accounts can't change their handle, so they can't undo a
+	// moderator's rename.
+	ErrSuspended    = errors.New("account suspended")
+	handlePattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{2,23}$`)
+	reservedHandles = []string{"admin", "administrator", "support", "moderator", "staff", "official",
 		"paperperps", "hyperliquid", "system", "root"}
 )
 
@@ -335,12 +356,15 @@ func (s *Store) UpdateProfile(ctx context.Context, id uuid.UUID, p Profile) erro
 		}
 		p.Handle = &h
 	}
-	_, err := s.pool.Exec(ctx, `
+	tag, err := s.pool.Exec(ctx, `
 		UPDATE accounts SET handle = coalesce($2, handle), leaderboard_opt_in = coalesce($3, leaderboard_opt_in)
-		WHERE id = $1`, id, p.Handle, p.LeaderboardOptIn)
+		WHERE id = $1 AND ($2::text IS NULL OR suspended_at IS NULL)`, id, p.Handle, p.LeaderboardOptIn)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return ErrHandleTaken
+	}
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrSuspended
 	}
 	return err
 }

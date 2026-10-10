@@ -2,6 +2,7 @@
 package config
 
 import (
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+
+	"github.com/juancruzfl/paperperps/server/internal/adminauth"
 )
 
 // DefaultMarkets is the top 20 perps by mainnet 24h volume that are also listed on
@@ -49,6 +52,10 @@ type Config struct {
 
 	LeaderboardMinTrades int
 	LeaderboardMinAge    time.Duration
+
+	// AdminPublicKey verifies signed admin requests (ADMIN_PUBLIC_KEY, from
+	// `paperperps-admin keygen`). Nil: the admin API doesn't exist.
+	AdminPublicKey ed25519.PublicKey
 }
 
 // Load reads the configuration from the environment and validates it.
@@ -72,6 +79,14 @@ func Load() (Config, error) {
 	c.ResetCooldown = parseDuration("RESET_COOLDOWN", "24h", &errs)
 	c.LeaderboardMinAge = parseDuration("LEADERBOARD_MIN_AGE", "24h", &errs)
 	c.LeaderboardMinTrades = parseInt("LEADERBOARD_MIN_TRADES", "5", &errs)
+
+	if k := os.Getenv("ADMIN_PUBLIC_KEY"); k != "" {
+		pub, err := adminauth.ParsePublicKey(k)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("ADMIN_PUBLIC_KEY: %w", err))
+		}
+		c.AdminPublicKey = pub
+	}
 
 	if c.DatabaseURL == "" {
 		errs = append(errs, errors.New("DATABASE_URL is required"))

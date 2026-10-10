@@ -2,7 +2,7 @@
 -include .env
 export
 
-.PHONY: help setup db-up db-down db-reset server web test test-server test-web lint build docker loadtest drill backup e2e
+.PHONY: help setup db-up db-down db-reset server web test test-server test-web lint build admin docker loadtest drill backup e2e
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -39,6 +39,9 @@ test-web:
 build: ## Build the frontend and server binary
 	cd web && npm run build
 	cd server && go build -o ../bin/paperperps ./cmd/paperperps
+
+admin: ## Build the moderation CLI to bin/paperperps-admin (see docs/operations.md)
+	cd server && go build -o ../bin/paperperps-admin ./cmd/paperperps-admin
 
 docker: ## Build the production image
 	docker build -t paperperps .

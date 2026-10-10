@@ -15,7 +15,7 @@ const WINDOWS: [LeaderboardWindow, string][] = [
 export function LeaderboardPage() {
   const secret = useAccount((s) => s.secret)
   // Reload when the viewer's own profile changes, so a new handle or opt-out shows at once.
-  const profileKey = useAccount((s) => (s.me ? `${s.me.handle}|${s.me.leaderboardOptIn}|${s.me.resets}` : ''))
+  const profileKey = useAccount((s) => (s.me ? `${s.me.handle}|${s.me.leaderboardOptIn}|${s.me.leaderboardHidden}|${!!s.me.suspension}|${s.me.resets}` : ''))
   const [window, setWindow] = useState<LeaderboardWindow>('all')
   const [board, setBoard] = useState<Leaderboard | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -172,7 +172,11 @@ function ProfileCard({ reason }: { reason?: string }) {
           <dd>{me.resets}</dd>
         </div>
       </dl>
-      {reason && <p className="notice-inline">Not on the board yet: {reason}.</p>}
+      {me.leaderboardHidden || me.suspension ? (
+        <p className="notice-inline">A moderator has hidden this account from the leaderboard.</p>
+      ) : (
+        reason && <p className="notice-inline">Not on the board yet: {reason}.</p>
+      )}
       <form
         className="profile-form"
         onSubmit={(e) => {
@@ -182,9 +186,16 @@ function ProfileCard({ reason }: { reason?: string }) {
       >
         <label className="field">
           <span>New handle</span>
-          <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder={me.handle} maxLength={24} autoComplete="off" />
+          <input
+            value={handle}
+            onChange={(e) => setHandle(e.target.value)}
+            placeholder={me.handle}
+            maxLength={24}
+            autoComplete="off"
+            disabled={!!me.suspension}
+          />
         </label>
-        <button type="submit" className="primary" disabled={saving || !handle.trim()}>
+        <button type="submit" className="primary" disabled={saving || !handle.trim() || !!me.suspension}>
           Save
         </button>
       </form>

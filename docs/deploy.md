@@ -20,6 +20,7 @@ Service settings are configured in the Railway dashboard. The repo deliberately 
 |---|---|
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (a reference to the Postgres service) |
 | `HL_NETWORK` | `mainnet` (the default; public read-only data, nothing is signed) |
+| `ADMIN_PUBLIC_KEY` | Optional: turns on the moderation API. From `make admin && ./bin/paperperps-admin keygen` on your machine (see [operations](operations.md#admin-tool)). Leave unset and the admin API doesn't exist. |
 
 Everything else has sensible defaults (see `.env.example`). Don't set `PORT` or `WEB_DIR`:
 Railway sets `PORT`, and the image sets `WEB_DIR`. `RAILWAY_GIT_COMMIT_SHA` is provided

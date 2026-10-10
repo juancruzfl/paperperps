@@ -156,7 +156,7 @@ export function PrivacyPage() {
       <section className="callout">
         <strong>In short:</strong> no sign-up, no names, emails, phone numbers or wallet addresses. No cookies, no
         analytics, no ads, no tracking. We never sell data. Your account is an anonymous key in your browser, and you can
-        delete it, with everything stored about it, any time.
+        delete it, with its trading history, any time.
       </section>
 
       <h2>What’s stored in your browser</h2>
@@ -185,6 +185,11 @@ export function PrivacyPage() {
         <li>
           <strong>Your simulated trading:</strong> orders, fills, positions, balances, fees, funding payments,
           liquidations, resets, and snapshots of your account value over time.
+        </li>
+        <li>
+          <strong>Moderation records:</strong> if we act on an account under our <a href="/terms">Terms</a> (for
+          example renaming a handle, hiding it from the leaderboard, suspending, resetting or deleting it), we record
+          the account ID, its handle at the time, what we did and why.
         </li>
       </ul>
       <p>
@@ -228,6 +233,10 @@ export function PrivacyPage() {
         <li>Your account and trading history: until you delete the account, or we delete it or shut the Service down.</li>
         <li>Account value snapshots: 35 days, except the most recent older one, which ranks you on the leaderboard.</li>
         <li>
+          Moderation records: kept after the account is deleted, so we can enforce our Terms. They contain no balances
+          or trades.
+        </li>
+        <li>
           Backups: deleted data can remain in our database backups until they’re replaced, normally within 30 days.
         </li>
       </ul>
@@ -236,7 +245,7 @@ export function PrivacyPage() {
       <ul>
         <li>
           <strong>Delete:</strong> account menu → <em>Delete account</em> permanently deletes your account and everything
-          we store about it, immediately.
+          we store about it, immediately, except any moderation records described above.
         </li>
         <li>
           <strong>Access:</strong> your positions, orders, trade, order and funding history are all visible in the app.
