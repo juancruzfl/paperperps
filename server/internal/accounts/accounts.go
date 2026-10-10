@@ -320,6 +320,8 @@ func NewID() uuid.UUID { return mustV7() }
 var (
 	ErrHandleTaken   = errors.New("handle taken")
 	ErrHandleInvalid = errors.New("invalid handle")
+	// ErrHandleOffensive: the handle contains a slur or obscenity (profanity.go).
+	ErrHandleOffensive = errors.New("offensive handle")
 	// ErrSuspended: suspended accounts can't change their handle, so they can't undo a
 	// moderator's rename.
 	ErrSuspended    = errors.New("account suspended")
@@ -338,6 +340,9 @@ func ValidateHandle(h string) error {
 		if strings.Contains(h, r) {
 			return ErrHandleInvalid
 		}
+	}
+	if Offensive(h) {
+		return ErrHandleOffensive
 	}
 	return nil
 }

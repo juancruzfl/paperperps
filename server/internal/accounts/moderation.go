@@ -178,3 +178,31 @@ func (s *Store) UseNonce(ctx context.Context, nonce string, expires time.Time) (
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// FlaggedHandles lists accounts whose handle fails today's filter: handles chosen before
+// a term was added to it. It reads every handle, which is fine at this site's size.
+func (s *Store) FlaggedHandles(ctx context.Context) ([]AccountSummary, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.id, a.handle, a.created_at,
+			(SELECT count(*) FROM fills f WHERE f.account_id = a.id),
+			a.leaderboard_opt_in, a.leaderboard_banned, a.suspended_at
+		FROM accounts a ORDER BY a.created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("flagged handles: %w", err)
+	}
+	all, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (AccountSummary, error) {
+		var a AccountSummary
+		err := r.Scan(&a.ID, &a.Handle, &a.CreatedAt, &a.Trades, &a.LeaderboardOptIn, &a.LeaderboardHidden, &a.SuspendedAt)
+		return a, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("flagged handles: %w", err)
+	}
+	flagged := []AccountSummary{}
+	for _, a := range all {
+		if Offensive(a.Handle) {
+			flagged = append(flagged, a)
+		}
+	}
+	return flagged, nil
+}

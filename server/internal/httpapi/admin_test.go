@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 
 	"github.com/juancruzfl/paperperps/server/internal/accounts"
@@ -113,6 +114,7 @@ type adminEnv struct {
 	srv    *httptest.Server
 	client *adminauth.Client
 	store  *accounts.Store
+	pool   *pgxpool.Pool
 }
 
 func newAdminEnv(t *testing.T) *adminEnv {
@@ -156,7 +158,7 @@ func newAdminEnv(t *testing.T) *adminEnv {
 		Engine: eng, Market: md, Hub: h, Leaderboard: leaderboard.New(pool, md, 5, 24*time.Hour, 30*time.Second),
 	}))
 	t.Cleanup(srv.Close)
-	return &adminEnv{srv: srv, client: &adminauth.Client{BaseURL: srv.URL, Key: priv}, store: store}
+	return &adminEnv{srv: srv, client: &adminauth.Client{BaseURL: srv.URL, Key: priv}, store: store, pool: pool}
 }
 
 func wantAPIError(t *testing.T, err error, status int, code string) {
@@ -282,5 +284,29 @@ func TestAdminReplayIsRejected(t *testing.T) {
 		if res.StatusCode != want {
 			t.Errorf("send %d: status %d, want %d", i+1, res.StatusCode, want)
 		}
+	}
+}
+
+// Handles chosen before the profanity filter existed show up in the flagged list.
+func TestAdminFlaggedHandles(t *testing.T) {
+	env := newAdminEnv(t)
+	ctx := context.Background()
+	clean, err := env.store.Create(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := env.store.Create(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.pool.Exec(ctx, `UPDATE accounts SET handle = 'sh1t-trader' WHERE id = $1`, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	var flagged []accounts.AccountSummary
+	if err := env.client.Do(ctx, "GET", "/api/admin/flagged-handles", nil, &flagged); err != nil {
+		t.Fatal(err)
+	}
+	if len(flagged) != 1 || flagged[0].ID != old.ID {
+		t.Errorf("flagged = %+v, want only %s (not %s)", flagged, old.ID, clean.ID)
 	}
 }

@@ -3,6 +3,7 @@
 //
 //	paperperps-admin keygen                 # once: make a key pair
 //	paperperps-admin find <text>            # search handles
+//	paperperps-admin flagged                # existing handles the profanity filter rejects
 //	paperperps-admin show <account>
 //	paperperps-admin rename <account> [new-handle] --reason "…"
 //	paperperps-admin hide|unhide <account> --reason "…"
@@ -43,6 +44,7 @@ commands:
   keygen [--out FILE]                      make a key pair (prints the public key for Railway)
   pubkey                                   print the public key of your private key
   find TEXT                                search accounts by handle (or exact ID)
+  flagged                                  existing handles the profanity filter now rejects
   show ACCOUNT                             account details, recent fills and admin actions
   rename ACCOUNT [HANDLE] --reason R       set a handle (random if HANDLE is left out)
   hide ACCOUNT --reason R                  take off the leaderboard; the user can't undo it
@@ -148,6 +150,8 @@ func run(args []string) error {
 		return a.find(ctx, pos[0])
 	case "log":
 		return a.log(ctx)
+	case "flagged":
+		return a.flagged(ctx)
 	case "show", "rename", "hide", "unhide", "suspend", "unsuspend", "reset", "delete":
 		if err := need(1, "ACCOUNT"); err != nil {
 			return err
@@ -320,13 +324,28 @@ func (a *admin) resolve(ctx context.Context, ref string) (uuid.UUID, string, err
 	return uuid.Nil, "", fmt.Errorf("no account with ID or handle %q (try: paperperps-admin find %s)", ref, ref)
 }
 
+func (a *admin) flagged(ctx context.Context) error {
+	var rows []accounts.AccountSummary
+	if err := a.c.Do(ctx, "GET", "/api/admin/flagged-handles", nil, &rows); err != nil {
+		return err
+	}
+	if !a.f.json && len(rows) > 0 {
+		defer fmt.Println("\nrename each with: paperperps-admin rename HANDLE --reason \"offensive handle\"")
+	}
+	return a.printAccounts(rows)
+}
+
 func (a *admin) find(ctx context.Context, q string) error {
 	rows, err := a.search(ctx, q)
-	if err != nil || a.f.json {
-		if err == nil {
-			err = a.printJSON(rows)
-		}
+	if err != nil {
 		return err
+	}
+	return a.printAccounts(rows)
+}
+
+func (a *admin) printAccounts(rows []accounts.AccountSummary) error {
+	if a.f.json {
+		return a.printJSON(rows)
 	}
 	if len(rows) == 0 {
 		fmt.Println("no matches")

@@ -1,0 +1,42 @@
+name: Security
+
+# Known-vulnerability scans of Go and npm dependencies. Weekly as well as on changes,
+# because new advisories appear without any change here.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 9 * * 1" # Mondays 09:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      # Reports only vulnerabilities in code the server actually calls.
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      # Only what ships to browsers; dev tooling never reaches users.
+      - run: npm audit --omit=dev --audit-level=high

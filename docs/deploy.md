@@ -18,7 +18,7 @@ Service settings are configured in the Railway dashboard. The repo deliberately 
 
 | Variable | Value |
 |---|---|
-| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (a reference to the Postgres service) |
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (a reference to the Postgres service). Never paste the localhost URL from your `.env`: on Railway the server refuses to start with it and says so in the logs. |
 | `HL_NETWORK` | `mainnet` (the default; public read-only data, nothing is signed) |
 | `ADMIN_PUBLIC_KEY` | Optional: turns on the moderation API. From `make admin && ./bin/paperperps-admin keygen` on your machine (see [operations](operations.md#admin-tool)). Leave unset and the admin API doesn't exist. |
 

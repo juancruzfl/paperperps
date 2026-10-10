@@ -83,3 +83,28 @@ func TestLoadReportsAllErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalDatabaseOnRailway(t *testing.T) {
+	for _, url := range []string{
+		"postgres://paperperps:paperperps@localhost:5433/paperperps?sslmode=disable",
+		"postgres://u:p@127.0.0.1:5432/db",
+		"host=localhost user=u dbname=db",
+		"postgres:///paperperps", // local Unix socket
+	} {
+		t.Setenv("DATABASE_URL", url)
+		t.Setenv("RAILWAY_PROJECT_ID", "")
+		t.Setenv("RAILWAY_ENVIRONMENT_NAME", "")
+		if _, err := Load(); err != nil {
+			t.Errorf("local run with %q: %v", url, err)
+		}
+		t.Setenv("RAILWAY_ENVIRONMENT_NAME", "production")
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "${{Postgres.DATABASE_URL}}") {
+			t.Errorf("Railway run with %q: err = %v, want the reference hint", url, err)
+		}
+	}
+	t.Setenv("DATABASE_URL", "postgresql://postgres:pw@postgres.railway.internal:5432/railway")
+	if _, err := Load(); err != nil {
+		t.Errorf("Railway's own database URL rejected: %v", err)
+	}
+}

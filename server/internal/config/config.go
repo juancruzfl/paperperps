@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/shopspring/decimal"
 
 	"github.com/juancruzfl/paperperps/server/internal/adminauth"
@@ -90,6 +91,8 @@ func Load() (Config, error) {
 
 	if c.DatabaseURL == "" {
 		errs = append(errs, errors.New("DATABASE_URL is required"))
+	} else if err := checkDatabaseHost(c.DatabaseURL); err != nil {
+		errs = append(errs, err)
 	}
 	if c.HLNetwork != NetworkTestnet && c.HLNetwork != NetworkMainnet {
 		errs = append(errs, fmt.Errorf("HL_NETWORK must be %q or %q, got %q", NetworkTestnet, NetworkMainnet, c.HLNetwork))
@@ -101,6 +104,37 @@ func Load() (Config, error) {
 		errs = append(errs, fmt.Errorf("LIQUIDATION_MODE must be %q or %q, got %q", LiquidationForfeit, LiquidationMarket, c.LiquidationMode))
 	}
 	return c, errors.Join(errs...)
+}
+
+// onRailway reports whether the server is running on Railway, which sets these in every
+// deployment.
+func onRailway() bool {
+	return os.Getenv("RAILWAY_PROJECT_ID") != "" || os.Getenv("RAILWAY_ENVIRONMENT_NAME") != ""
+}
+
+// checkDatabaseHost catches DATABASE_URL copied from a local .env into Railway, where
+// localhost is the app's own container and the database can never be reached.
+func checkDatabaseHost(databaseURL string) error {
+	if !onRailway() {
+		return nil
+	}
+	pc, err := pgconn.ParseConfig(databaseURL)
+	if err != nil {
+		return nil // pgx reports a malformed URL clearly when it connects
+	}
+	if h := pc.Host; h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "" || strings.HasPrefix(h, "/") {
+		return fmt.Errorf("DATABASE_URL points at %s, but this is running on Railway, where that's the app's own "+
+			"container, not the database. In the app service's Variables, set DATABASE_URL to the reference "+
+			"${{Postgres.DATABASE_URL}}", hostOrSocket(pc.Host))
+	}
+	return nil
+}
+
+func hostOrSocket(h string) string {
+	if h == "" || strings.HasPrefix(h, "/") {
+		return "a local socket"
+	}
+	return h
 }
 
 // HLInfoURL is the Hyperliquid REST info endpoint for the configured network.
