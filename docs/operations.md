@@ -214,6 +214,11 @@ frontend's shipped dependencies, on every push and pull request and every Monday
 emails you when the weekly run fails: update the named module (`go get -u <module>` in
 `server/`, or `npm update <package>` in `web/`) and redeploy.
 
+When the finding is in the Go standard library (`crypto/tls`, `net/http`…), the fix is a
+Go patch release: raise the `go` line in `server/go.mod` to the fixed version (govulncheck
+prints it as "Fixed in"). CI and the Docker build then use at least that version, and
+update your local Go too (`sudo dnf upgrade golang` on Fedora).
+
 ## Useful commands
 
 ```sh
