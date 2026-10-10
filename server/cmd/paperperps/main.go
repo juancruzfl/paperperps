@@ -116,6 +116,8 @@ func run() error {
 			Trading:     ratelimit.New(10, 30),
 			// Admin calls, per IP: 1 per second, bursts of 20.
 			Admin: ratelimit.New(1, 20),
+			// Public profiles, per IP: 5 per second, bursts of 30.
+			Profiles: ratelimit.New(5, 30),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,

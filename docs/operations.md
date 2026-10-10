@@ -251,5 +251,6 @@ them true, or update the documents and their effective date first.
 | **Self-serve deletion is immediate** | `DELETE /api/me` cascades over every table that references `accounts`. A new table with account data needs `ON DELETE CASCADE` too; `TestDeleteAccountRemovesEverything` checks the list. |
 | **Deleted data leaves backups within 30 days** | Don't keep `make backup` dumps, or Railway backups, longer than 30 days. |
 | **Equity snapshots are kept 35 days** | `engine.SnapshotRetention`. |
+| **Profiles show only leaderboard accounts, and no balances, orders or keys** | `accounts.PublicAccount` requires opt-in and no moderation; `TestTraderProfile` checks hiding and the fields left out. New profile fields need a line in the Privacy Policy's "What's public". |
 | **Moderation records outlive deleted accounts** | `admin_actions` has no foreign key to `accounts` on purpose. It keeps only account ID, handle, action and reason; keep it that way (no balances, no trade data). |
 | **Service providers: Railway and Porkbun** | Name any new provider that handles requests or data in the Privacy Policy. |

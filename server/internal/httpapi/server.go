@@ -36,6 +36,8 @@ type Deps struct {
 	Trading     *ratelimit.Limiter
 	// Admin limits admin API calls per IP, before signatures are checked.
 	Admin *ratelimit.Limiter
+	// Profiles limits public profile lookups per IP.
+	Profiles *ratelimit.Limiter
 }
 
 // New builds the HTTP handler.
@@ -91,6 +93,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/me", trade(handleDeleteAccount(d.Engine, d.Leaderboard)))
 	mux.HandleFunc("GET /api/me/equity", auth(handleEquity(d.Accounts)))
 	mux.HandleFunc("GET /api/leaderboard", handleLeaderboard(d.Leaderboard, d.Accounts))
+	mux.HandleFunc("GET /api/traders/{handle}", limit(d.Profiles, ratelimit.ClientIP, handleTrader(d)))
 	mux.HandleFunc("GET /api/me/orders", auth(handleHistory("order history", d.Accounts.OrderHistory)))
 	mux.HandleFunc("GET /api/me/fills", auth(handleHistory("fills", d.Accounts.Fills)))
 	mux.HandleFunc("GET /api/me/funding", auth(handleHistory("funding", d.Accounts.Funding)))
