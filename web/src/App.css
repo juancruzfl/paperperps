@@ -105,16 +105,16 @@
   display: flex;
   align-items: center;
   padding: 6px 10px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 8px;
   font: inherit;
   color: var(--text);
-  background: var(--surface);
+  background: transparent;
   cursor: pointer;
 }
 
 .selector-button:hover {
-  border-color: var(--muted);
+  background: var(--surface);
 }
 
 .selector-coin {
@@ -123,8 +123,13 @@
 }
 
 .chevron {
-  margin-left: 8px;
+  margin-left: 6px;
   color: var(--muted);
+}
+
+.icon {
+  flex: none;
+  vertical-align: -2px;
 }
 
 .selector-panel {
@@ -135,7 +140,7 @@
   width: min(560px, calc(100vw - 32px));
   max-height: 70vh;
   overflow: auto;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 10px;
   background: var(--surface);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
@@ -281,7 +286,8 @@
   }
 }
 
-.mobile-tabs {
+/* .tabs.mobile-tabs: the general .tabs rule further down would otherwise show it. */
+.tabs.mobile-tabs {
   display: none;
 }
 
@@ -299,7 +305,7 @@
       'account';
   }
 
-  .mobile-tabs {
+  .tabs.mobile-tabs {
     display: flex;
     grid-area: tabs;
     background: var(--bg);
@@ -554,18 +560,25 @@ button.primary {
 }
 
 button.ghost {
-  border: 1px solid var(--border);
+  border: 0;
   color: var(--text);
   background: transparent;
 }
 
+button.ghost:hover,
+.small-btn:not(.primary):hover,
+.chip:hover,
+.fractions button:hover:not(:disabled) {
+  background: var(--surface);
+}
+
 .small-btn {
   padding: 3px 10px;
-  border: 1px solid var(--border);
+  border: 0;
   font-size: 12px;
   font-weight: 500;
   color: var(--text);
-  background: var(--surface);
+  background: transparent;
 }
 
 .small-btn.primary {
@@ -592,20 +605,21 @@ button.link:hover {
 
 .chip {
   padding: 3px 10px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 999px;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--text);
-  background: var(--surface);
+  background: transparent;
   cursor: pointer;
 }
 
 .text-input {
   width: 100%;
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 9px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
   font: inherit;
   font-family: var(--mono);
   font-size: 13px;
@@ -622,7 +636,8 @@ button.link:hover {
 .dialog {
   width: min(400px, calc(100vw - 32px));
   padding: 20px;
-  border: 1px solid var(--border);
+  border: 0;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
   border-radius: 12px;
   color: var(--text);
   background: var(--surface);
@@ -678,12 +693,16 @@ button.link:hover {
   flex-direction: column;
   align-items: flex-end;
   padding: 4px 10px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 8px;
   font: inherit;
   color: var(--text);
-  background: var(--surface);
+  background: transparent;
   cursor: pointer;
+}
+
+.account-button:hover {
+  background: var(--surface);
 }
 
 .account-value {
@@ -705,7 +724,7 @@ button.link:hover {
   right: 0;
   width: 280px;
   padding: 6px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 10px;
   background: var(--surface);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
@@ -803,9 +822,6 @@ button.link:hover {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px;
-  padding: 3px;
-  border-radius: 8px;
-  background: var(--surface);
 }
 
 .side-toggle button {
@@ -818,6 +834,11 @@ button.link:hover {
   color: var(--muted);
   background: none;
   cursor: pointer;
+}
+
+.side-toggle button:not(.active) {
+  border-radius: 0;
+  box-shadow: inset 0 -1px var(--border);
 }
 
 .side-toggle .buy.active {
@@ -834,17 +855,15 @@ button.link:hover {
   position: relative;
   display: flex;
   align-items: center;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 
 .field:focus-within {
-  border-color: var(--muted);
+  border-bottom-color: var(--long);
 }
 
 .field > span {
-  padding-left: 10px;
+  padding-left: 0;
   font-size: 12px;
   white-space: nowrap;
   color: var(--muted);
@@ -882,7 +901,7 @@ button.link:hover {
 
 .fractions button {
   padding: 4px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 4px;
   font-family: var(--mono);
   font-size: 11px;
@@ -1003,8 +1022,8 @@ button.link:hover {
 .toast {
   max-width: 380px;
   padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-left-width: 3px;
+  border: 0;
+  border-left: 3px solid var(--border);
   border-radius: 8px;
   font: inherit;
   font-size: 13px;
@@ -1037,7 +1056,7 @@ button.link:hover {
   display: grid;
   gap: 4px;
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: 8px;
   font: inherit;
   font-size: 12px;
@@ -1057,6 +1076,8 @@ button.link:hover {
 }
 
 .icon-btn {
+  display: inline-flex;
+  align-items: center;
   margin-left: 6px;
   padding: 0 4px;
   border: 0;
@@ -1114,12 +1135,17 @@ button.link:hover {
 .tif {
   margin-left: auto;
   padding: 3px 6px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 4px;
   font: inherit;
   font-size: 12px;
   color: var(--text);
-  background: var(--bg);
+  background: transparent;
+  cursor: pointer;
+}
+
+.tif:hover {
+  background: var(--surface);
 }
 
 .tpsl-fields {
@@ -1254,10 +1280,9 @@ button.link:hover {
   }
 }
 
+/* Sections sit on the page, set off by a hairline instead of a box. */
 .card {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
+  border-top: 1px solid var(--border);
 }
 
 .board {
@@ -1265,7 +1290,7 @@ button.link:hover {
 }
 
 .board-table th {
-  background: var(--surface);
+  background: var(--bg);
 }
 
 .board-table td {
@@ -1609,7 +1634,7 @@ button.primary.danger {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 16px;
+  padding: 16px 0;
 }
 
 .trader-tile p {
@@ -1636,7 +1661,7 @@ button.primary.danger {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 10px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1670,7 +1695,7 @@ button.primary.danger {
   flex-direction: column;
   justify-content: space-around;
   margin: 0;
-  padding: 6px 12px;
+  padding: 6px 0;
 }
 
 .trader-rows > div {
@@ -1715,7 +1740,7 @@ button.primary.danger {
 }
 
 .trader-positions .data-table th {
-  background: var(--surface);
+  background: var(--bg);
 }
 
 .trader-positions .data-table td a {
@@ -1744,11 +1769,7 @@ button.primary.danger {
 }
 
 .trade-stats-grid > div {
-  padding: 12px;
-}
-
-.trade-stats-grid > div:not(:nth-child(3n + 1)) {
-  border-left: 1px solid var(--border);
+  padding: 12px 12px 12px 0;
 }
 
 .trade-stats-grid > div:nth-child(n + 4) {
@@ -1834,16 +1855,8 @@ button.primary.danger {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .trade-stats-grid > div {
-    border-left: 0 !important;
-  }
-
   .trade-stats-grid > div:nth-child(n + 3) {
     border-top: 1px solid var(--border);
-  }
-
-  .trade-stats-grid > div:nth-child(2n) {
-    border-left: 1px solid var(--border) !important;
   }
 
   .trade-stats-tables {
@@ -1935,18 +1948,18 @@ button.primary.danger {
 .note-input {
   display: block;
   width: 100%;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
   font: inherit;
   font-size: 14px;
   color: var(--text);
-  background: var(--bg);
+  background: transparent;
   resize: vertical;
 }
 
 .note-input:focus {
-  border-color: var(--muted);
+  border-bottom-color: var(--long);
   outline: none;
 }
 
@@ -2044,7 +2057,7 @@ button.primary.danger {
   position: fixed;
   z-index: 61;
   padding: 16px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 12px;
   font-size: 14px;
   color: var(--text);
@@ -2091,6 +2104,29 @@ button.primary.danger {
   }
 }
 
+/* Top three on the leaderboard: gold, silver and bronze numbers. */
+.podium {
+  font-weight: 700;
+}
+
+.podium-1 {
+  color: #f5c84b;
+}
+
+.podium-2 {
+  color: #c9d3dc;
+}
+
+.podium-3 {
+  color: #d99a6c;
+}
+
+.alert-dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
 /* ---------- order book grouping ---------- */
 
 .book-tools {
@@ -2109,11 +2145,16 @@ button.primary.danger {
 
 .book-tools select {
   padding: 2px 6px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 4px;
   font: inherit;
   font-family: var(--mono);
   color: var(--text);
+  background: transparent;
+  cursor: pointer;
+}
+
+.book-tools select:hover {
   background: var(--surface);
 }
 
