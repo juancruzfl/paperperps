@@ -130,8 +130,8 @@ test('a trader shares a position and has a public profile', async ({ page, reque
   await test.step('the profile shows the open position', async () => {
     await page.goto(`/u/${handle}`)
     await expect(page.getByRole('heading', { name: handle })).toBeVisible()
-    await expect(page.locator('.trader-stats')).toContainText('Trades')
-    await expect(page.locator('.trader-section').getByRole('cell', { name: /^ETH/ })).toBeVisible()
+    await expect(page.locator('.trader-overview')).toContainText('Win rate')
+    await expect(page.locator('.trader-positions').getByRole('cell', { name: /^ETH/ })).toBeVisible()
   })
 
   await test.step('hiding from the leaderboard hides the profile', async () => {
