@@ -61,3 +61,21 @@ export const ArrowDownIcon = (p: IconProps) => (
     <path d="M12 5v14M19 12l-7 7-7-7" />
   </Icon>
 )
+
+export const ChevronRightIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m9 6 6 6-6 6" />
+  </Icon>
+)
+
+export const CheckIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 12.5 10 17l9-10" />
+  </Icon>
+)
+
+export const CircleIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="8" />
+  </Icon>
+)
