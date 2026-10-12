@@ -11,6 +11,13 @@ import { PnlChart } from './PnlChart'
 import { ShareButton } from './ShareButton'
 import { TradeStats } from './TradeStats'
 
+const RANGE_NAMES: Record<PnlRange, string> = {
+  '24h': 'Last 24 hours',
+  '7d': 'Last 7 days',
+  '30d': 'Last 30 days',
+  all: 'All time',
+}
+
 const tone = (n: number) => (n > 0 ? 'up' : n < 0 ? 'down' : '')
 
 /** A trader's public profile: /u/<handle>. */
@@ -75,11 +82,15 @@ export function TraderPage() {
   if (!current) return <main className="page"><div className="panel-empty">Loading…</div></main>
 
   const pnl = Number(current.lifetimePnl)
-  const winRate = current.closedTrades > 0 ? current.wins / current.closedTrades : null
+  // Win rate over closed positions, as in Trade stats; older servers only send fill counts.
+  const perf = current.performance
+  const wins = perf ? perf.wins : current.wins
+  const closed = perf ? perf.roundTrips : current.closedTrades
+  const winRate = closed > 0 ? wins / closed : null
   const joined = new Date(current.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   const best = Number(current.bestTrade)
   const win = pnlWindow(current.equity, pnl, range)
-  const rangeLabel = PNL_RANGES.find((r) => r.id === range)?.label ?? ''
+  const rangeName = RANGE_NAMES[range]
 
   return (
     <main className="page trader-page">
@@ -91,12 +102,19 @@ export function TraderPage() {
               {isYou && <span className="badge">you</span>}
             </h1>
             <p className="muted small">
-              {current.rank > 0 ? <span className="trader-rank">#{current.rank} all time</span> : 'Not ranked yet'} · trading since {joined}
+              {current.rank > 0 ? (
+                <a className="trader-rank" href="/leaderboard">
+                  #{current.rank} on the all-time leaderboard
+                </a>
+              ) : (
+                'Not on the leaderboard yet'
+              )}{' '}
+              · trading since {joined}
             </p>
           </div>
         </div>
         <ShareButton
-          className="ghost"
+          className="ghost share-profile"
           label="Share profile"
           build={() => ({
             kind: 'profile',
@@ -110,80 +128,95 @@ export function TraderPage() {
         />
       </div>
 
-      <div className="trader-overview">
-        <div className="trader-tiles">
-          <section className="card trader-tile">
-            <h2>Lifetime PnL</h2>
-            <p className={`trader-big ${tone(pnl)}`}>{formatUsd(pnl, { signed: true })}</p>
-          </section>
-          <section className="card trader-tile">
-            <h2>Volume</h2>
-            <p className="trader-big">{formatUsdCompact(Number(current.volume))}</p>
-            <p className="muted small">{current.trades.toLocaleString('en-US')} {current.trades === 1 ? 'trade' : 'trades'}</p>
-          </section>
+      {isYou && (
+        <p className="trader-own muted small">
+          This is your public profile: what other traders see. Change your handle or hide it on the{' '}
+          <a href="/leaderboard">leaderboard</a>.
+        </p>
+      )}
+
+      <dl className="trader-hero">
+        <div className="trader-hero-main">
+          <dt title="Profit and loss since they started, across resets, counting open positions at live prices">Lifetime PnL</dt>
+          <dd className={tone(pnl)}>{formatUsd(pnl, { signed: true })}</dd>
         </div>
+        <div>
+          <dt title="Total value of everything they’ve traded">Volume</dt>
+          <dd>{formatUsdCompact(Number(current.volume))}</dd>
+        </div>
+        <div>
+          <dt title="Share of closed positions that made money, after fees">Win rate</dt>
+          <dd>
+            {winRate === null ? '—' : formatPct(winRate, 0).replace('+', '')}
+            {winRate !== null && (
+              <span className="muted small">
+                {' '}
+                {wins} of {closed}
+              </span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>Trades</dt>
+          <dd>{current.trades.toLocaleString('en-US')}</dd>
+        </div>
+      </dl>
 
-        <section className="card trader-summary">
-          <div className="trader-summary-head">
-            <h2>Performance</h2>
-            <div className="trader-ranges" role="tablist" aria-label="Time range">
-              {PNL_RANGES.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={range === r.id}
-                  className={range === r.id ? 'active' : ''}
-                  onClick={() => setRange(r.id)}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <dl className="trader-rows">
-            <div>
-              <dt>PnL ({rangeLabel})</dt>
-              <dd className={tone(win.pnl)}>{formatUsd(win.pnl, { signed: true })}</dd>
-            </div>
-            <div>
-              <dt>Max drawdown ({rangeLabel})</dt>
-              <dd className={win.maxDrawdown > 0 ? 'down' : ''}>{win.maxDrawdown > 0 ? formatUsd(-win.maxDrawdown) : '—'}</dd>
-            </div>
-            <div>
-              <dt>Win rate</dt>
-              <dd>
-                {winRate === null ? '—' : formatPct(winRate, 0).replace('+', '')}
-                {winRate !== null && <span className="muted"> · {current.wins}/{current.closedTrades}</span>}
-              </dd>
-            </div>
-            <div>
-              <dt>Best trade</dt>
-              <dd className={tone(best)}>{best > 0 ? formatUsd(best, { signed: true }) : '—'}</dd>
-            </div>
-            <div>
-              <dt>Open positions</dt>
-              <dd>{current.positions.length}</dd>
-            </div>
-            <div>
-              <dt>Resets</dt>
-              <dd>{current.resets}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section className="card trader-chart">
-          <div className="tabs" role="tablist" aria-label="Chart">
-            <button type="button" role="tab" aria-selected className="active">
-              PnL · {rangeLabel}
+      <div className="trader-section-head">
+        <h2>Performance</h2>
+        <div className="trader-ranges" role="tablist" aria-label="Time range for PnL and the chart">
+          {PNL_RANGES.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              role="tab"
+              aria-selected={range === r.id}
+              className={range === r.id ? 'active' : ''}
+              onClick={() => setRange(r.id)}
+            >
+              {r.label}
             </button>
-          </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="trader-overview">
+        <section className="trader-chart">
           <PnlChart
             points={win.points}
             live={win.points.length > 0 ? win.pnl : null}
-            empty={range === 'all' ? 'No history yet. Points are added every 5 minutes while trading.' : 'No activity in this range.'}
+            empty={
+              current.equity.length === 0
+                ? 'No history yet. The chart fills in every 5 minutes while they trade.'
+                : 'Nothing recorded in this range yet.'
+            }
           />
         </section>
+
+        <aside className="trader-summary">
+          <h3 className="trader-summary-head">{rangeName}</h3>
+          <dl className="trader-rows">
+            <div>
+              <dt>PnL</dt>
+              <dd className={tone(win.pnl)}>{formatUsd(win.pnl, { signed: true })}</dd>
+            </div>
+            <div>
+              <dt title="The biggest drop from a high point to a later low in this range">Max drawdown</dt>
+              <dd className={win.maxDrawdown > 0 ? 'down' : ''}>{win.maxDrawdown > 0 ? formatUsd(-win.maxDrawdown) : '—'}</dd>
+            </div>
+          </dl>
+          <h3 className="trader-summary-head">Trading record</h3>
+          <dl className="trader-rows">
+            <div>
+              <dt title="The largest profit from a single closing trade">Best trade</dt>
+              <dd className={tone(best)}>{best > 0 ? formatUsd(best, { signed: true }) : '—'}</dd>
+            </div>
+            <div>
+              <dt title="Times they started over with $1,000. Losses from before a reset still count">Resets</dt>
+              <dd>{current.resets}</dd>
+            </div>
+          </dl>
+        </aside>
       </div>
 
       <section className="card trader-positions">
@@ -210,7 +243,7 @@ export function TraderPage() {
         {tab === 'stats' ? (
           <TradeStats perf={current.performance} />
         ) : current.positions.length === 0 ? (
-          <div className="panel-empty">No open positions.</div>
+          <div className="panel-empty">No open positions right now.</div>
         ) : (
           <div className="table-wrap">
             <table className="data-table">
@@ -218,10 +251,18 @@ export function TraderPage() {
                 <tr>
                   <th>Coin</th>
                   <th className="num">Size</th>
-                  <th className="num hide-sm">Position value</th>
-                  <th className="num">Entry</th>
-                  <th className="num hide-sm">Mark</th>
-                  <th className="num">PnL (ROE)</th>
+                  <th className="num hide-sm" title="Size × the current mark price">
+                    Position value
+                  </th>
+                  <th className="num" title="The average price they got in at">
+                    Entry
+                  </th>
+                  <th className="num hide-sm" title="The current price used for profit and loss">
+                    Mark
+                  </th>
+                  <th className="num" title="Profit or loss if closed now. ROE is that as a share of the margin behind it">
+                    PnL (ROE)
+                  </th>
                 </tr>
               </thead>
               <tbody>

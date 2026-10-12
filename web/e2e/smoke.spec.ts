@@ -56,7 +56,7 @@ test('a visitor trades, a take-profit fires, and the account resets', async ({ p
   await test.step('leaderboard shows the visitor', async () => {
     await page.getByRole('link', { name: 'Leaderboard' }).click()
     await expect(page.getByRole('heading', { name: 'Leaderboard' })).toBeVisible()
-    await expect(page.getByText('Not on the board yet')).toBeVisible()
+    await expect(page.getByText('To appear on the board:')).toBeVisible()
     await page.getByRole('link', { name: 'Trade' }).click()
   })
 
@@ -130,7 +130,7 @@ test('a trader shares a position and has a public profile', async ({ page, reque
   await test.step('the profile shows the open position', async () => {
     await page.goto(`/u/${handle}`)
     await expect(page.getByRole('heading', { name: handle })).toBeVisible()
-    await expect(page.locator('.trader-overview')).toContainText('Win rate')
+    await expect(page.locator('.trader-hero')).toContainText('Win rate')
     await expect(page.locator('.trader-positions').getByRole('cell', { name: /^ETH/ })).toBeVisible()
   })
 

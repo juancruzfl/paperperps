@@ -1298,8 +1298,32 @@ button.link:hover {
   font-size: 13px;
 }
 
-.board-table tr.you td {
+.board-table tbody tr:not(.gap) {
+  cursor: pointer;
+}
+
+.board-table tbody tr:not(.gap):hover td {
+  background: var(--surface);
+}
+
+.board-table tr.you td,
+.board-table tr.you:hover td {
   background: rgba(61, 220, 151, 0.08);
+}
+
+/* An arrow on each row says "this opens something". */
+.board-table .row-go {
+  width: 28px;
+  padding-left: 0;
+  color: var(--muted);
+}
+
+.board-table tbody tr:hover .row-go {
+  color: var(--text);
+}
+
+.board-table tbody tr:hover .trader-link {
+  color: var(--long);
 }
 
 .board-table tr.gap td {
@@ -1348,9 +1372,82 @@ button.link:hover {
   font-family: var(--mono);
 }
 
+.profile-settings {
+  margin-top: 8px !important;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.standing {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.standing-rank {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.steps p {
+  margin: 0 0 8px;
+}
+
+.steps ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.steps li .icon {
+  color: var(--muted);
+}
+
+.steps li.done .icon {
+  color: var(--long);
+}
+
+.steps li.done > span:first-of-type {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.setting-row .mono {
+  font-family: var(--mono);
+}
+
+.profile-form-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.profile-form p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .profile-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
   gap: 8px;
 }
 
@@ -1610,45 +1707,38 @@ button.primary.danger {
   color: var(--warn);
 }
 
-.trader-overview {
+/* The headline numbers, read left to right; lifetime PnL leads. */
+.trader-hero {
   display: grid;
-  grid-template-columns: 240px 320px minmax(0, 1fr);
-  gap: 12px;
-  margin-bottom: 12px;
+  grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 8px 0 28px;
 }
 
-.trader-overview h2 {
-  margin: 0;
+.trader-hero dt {
   font-size: 12px;
-  font-weight: 500;
   color: var(--muted);
 }
 
-.trader-tiles {
-  display: grid;
-  grid-auto-rows: 1fr;
-  gap: 12px;
-}
-
-.trader-tile {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 16px 0;
-}
-
-.trader-tile p {
-  margin: 0;
-}
-
-.trader-big {
-  margin-top: 6px !important;
+.trader-hero dd {
+  margin: 4px 0 0;
   font-family: var(--mono);
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
+}
+
+.trader-hero .trader-hero-main dd {
+  font-size: 32px;
+}
+
+/* Chart wide on the left, the range's numbers beside it. */
+.trader-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 28px;
+  margin-bottom: 28px;
 }
 
 .trader-summary {
@@ -1657,12 +1747,65 @@ button.primary.danger {
 }
 
 .trader-summary-head {
+  margin: 0;
+  padding: 12px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* One range picker for the whole Performance section: PnL, drawdown and the chart. */
+.trader-section-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.trader-section-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.trader-own {
+  margin: -6px 0 18px;
+}
+
+.trader-own a,
+a.trader-rank {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a.trader-rank {
+  color: var(--warn);
+  text-decoration: none;
+}
+
+a.trader-rank:hover {
+  text-decoration: underline;
+}
+
+.trader-head .share-profile {
+  background: var(--surface);
+}
+
+.trader-head .share-profile:hover {
+  background: var(--border);
+}
+
+/* Terms with a definition on hover get a dotted underline. */
+dt[title],
+th[title] {
+  text-decoration: underline dotted;
+  text-decoration-color: rgba(139, 152, 165, 0.6);
+  text-underline-offset: 3px;
+  cursor: help;
 }
 
 .trader-ranges {
@@ -1690,12 +1833,10 @@ button.primary.danger {
 }
 
 .trader-rows {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: space-around;
   margin: 0;
-  padding: 6px 0;
+  padding: 2px 0 6px;
 }
 
 .trader-rows > div {
@@ -1726,12 +1867,13 @@ button.primary.danger {
   display: flex;
   flex-direction: column;
   min-height: 300px;
+  padding-top: 8px;
   overflow: hidden;
 }
 
 .trader-chart .perf-chart {
   flex: 1;
-  min-height: 260px;
+  min-height: 280px;
 }
 
 .trader-positions {
@@ -1779,12 +1921,6 @@ button.primary.danger {
 .trade-stats-grid dt {
   font-size: 12px;
   color: var(--muted);
-}
-
-.trade-stats-grid dt[title] {
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
-  cursor: help;
 }
 
 .trade-stats-grid dd {
@@ -1836,21 +1972,22 @@ button.primary.danger {
   color: var(--long);
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 860px) {
   .trader-overview {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .trader-chart {
+  .trader-hero {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .trader-hero .trader-hero-main {
     grid-column: 1 / -1;
   }
 }
 
 @media (max-width: 640px) {
-  .trader-overview {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .trade-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1868,12 +2005,12 @@ button.primary.danger {
     border-top: 1px solid var(--border);
   }
 
-  .trader-tiles {
-    grid-template-columns: 1fr 1fr;
+  .trader-hero .trader-hero-main dd {
+    font-size: 26px;
   }
 
-  .trader-big {
-    font-size: 18px;
+  .trader-hero dd {
+    font-size: 16px;
   }
 }
 
@@ -2180,4 +2317,18 @@ button.primary.danger {
   padding: 4px 0;
   font-size: 13px;
   color: var(--text);
+}
+
+/* The leaderboard's own buttons keep a fill so they read as clickable. */
+.profile .small-btn:not(.primary) {
+  background: var(--surface);
+}
+
+.profile .small-btn:not(.primary):hover {
+  background: var(--border);
+}
+
+.profile .check + .small {
+  margin-top: -8px;
+  padding-left: 22px;
 }

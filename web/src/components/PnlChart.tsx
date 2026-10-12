@@ -24,8 +24,8 @@ export function PnlChart({ points, live, empty }: Props) {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#8b98a5', attributionLogo: true },
       grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(31, 40, 51, 0.6)' } },
-      rightPriceScale: { borderColor: '#1f2833' },
-      timeScale: { borderColor: '#1f2833', timeVisible: true },
+      rightPriceScale: { borderVisible: false },
+      timeScale: { borderVisible: false, timeVisible: true },
     })
     seriesRef.current = chart.addSeries(AreaSeries, {
       lineColor: '#3ddc97',

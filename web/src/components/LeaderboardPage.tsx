@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { refreshAccount, useAccount } from '../lib/account'
 import { formatUsd, formatUsdCompact } from '../lib/format'
-import { traderPath } from '../lib/route'
+import { navigate, traderPath } from '../lib/route'
 import { toast } from '../lib/toasts'
 import type { Leaderboard, LeaderboardEntry, LeaderboardWindow } from '../lib/types'
+import { CheckIcon, ChevronRightIcon, CircleIcon } from './Icons'
 
 const WINDOWS: [LeaderboardWindow, string][] = [
   ['24h', '24 hours'],
@@ -79,10 +80,17 @@ export function LeaderboardPage() {
                 <tr>
                   <th className="num">#</th>
                   <th>Trader</th>
-                  <th className="num">PnL</th>
-                  <th className="num hide-sm">Volume</th>
+                  <th className="num" title="Profit and loss over this window, counting open positions at live prices">
+                    PnL
+                  </th>
+                  <th className="num hide-sm" title="Total value of everything they traded">
+                    Volume
+                  </th>
                   <th className="num hide-sm">Trades</th>
-                  <th className="num hide-sm">Resets</th>
+                  <th className="num hide-sm" title="Times they started over with $1,000. Losses from before a reset still count">
+                    Resets
+                  </th>
+                  <th aria-hidden />
                 </tr>
               </thead>
               <tbody>
@@ -92,7 +100,7 @@ export function LeaderboardPage() {
                 {board.you && !youRanked && (
                   <>
                     <tr className="gap">
-                      <td colSpan={6} />
+                      <td colSpan={7} />
                     </tr>
                     <Row entry={{ ...board.you, you: true }} unranked={!board.you.eligible} />
                   </>
@@ -102,13 +110,12 @@ export function LeaderboardPage() {
           )}
           {board && (
             <p className="muted small board-foot">
-              To appear: at least {board.minTrades} trades and an account at least {board.minAgeHours} hours old.
-              Updated {new Date(board.updatedAt).toLocaleTimeString()}.
+              Select a trader to see their profile. Updated {new Date(board.updatedAt).toLocaleTimeString()}.
             </p>
           )}
         </section>
 
-        <ProfileCard reason={board?.you && !board.you.eligible ? board.you.reason : undefined} />
+        <YourStanding board={board} windowLabel={WINDOWS.find(([w]) => w === window)?.[1] ?? ''} />
       </div>
     </main>
   )
@@ -117,7 +124,7 @@ export function LeaderboardPage() {
 function Row({ entry, unranked }: { entry: LeaderboardEntry; unranked?: boolean }) {
   const pnl = Number(entry.pnl)
   return (
-    <tr className={entry.you ? 'you' : undefined}>
+    <tr className={entry.you ? 'you' : undefined} onClick={() => navigate(traderPath(entry.handle))}>
       <td className="num">
         {unranked ? '—' : entry.rank <= 3 ? <span className={`podium podium-${entry.rank}`}>{entry.rank}</span> : entry.rank}
       </td>
@@ -131,12 +138,17 @@ function Row({ entry, unranked }: { entry: LeaderboardEntry; unranked?: boolean 
       <td className="num hide-sm">{formatUsdCompact(Number(entry.volume))}</td>
       <td className="num hide-sm">{entry.trades}</td>
       <td className="num hide-sm">{entry.resets}</td>
+      <td className="row-go" aria-hidden>
+        <ChevronRightIcon size={14} />
+      </td>
     </tr>
   )
 }
 
-function ProfileCard({ reason }: { reason?: string }) {
+/** The viewer's place on the board, what they still need to appear, and their settings. */
+function YourStanding({ board, windowLabel }: { board: Leaderboard | null; windowLabel: string }) {
   const { me, secret } = useAccount()
+  const [editing, setEditing] = useState(false)
   const [handle, setHandle] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -151,6 +163,7 @@ function ProfileCard({ reason }: { reason?: string }) {
       if (profile.handle) {
         toast(`You’re now ${profile.handle.toLowerCase()}`, 'success')
         setHandle('')
+        setEditing(false)
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not reach the server')
@@ -159,51 +172,118 @@ function ProfileCard({ reason }: { reason?: string }) {
     }
   }
 
+  const you = board?.you
+  const moderated = me.leaderboardHidden || !!me.suspension
   const lifetime = Number(me.lifetimePnl)
+  const windowPnl = you ? Number(you.pnl) : 0
+  const trades = you?.trades ?? 0
+  // Measured at the board's update time, as the server does.
+  const ageHours = board ? (Date.parse(board.updatedAt) - Date.parse(me.createdAt)) / 3_600_000 : 0
+  const steps = board
+    ? [
+        {
+          done: trades >= board.minTrades,
+          label: `Make ${board.minTrades} trades`,
+          detail: `${Math.min(trades, board.minTrades)} of ${board.minTrades}`,
+        },
+        {
+          done: ageHours >= board.minAgeHours,
+          label: `Keep your account ${board.minAgeHours} hours`,
+          detail: `${Math.max(1, Math.ceil(board.minAgeHours - ageHours))}h to go`,
+        },
+      ]
+    : []
+
   return (
     <section className="card profile">
-      <h2>You</h2>
-      <dl className="profile-stats">
-        <div>
-          <dt>Handle</dt>
-          <dd>{me.handle}</dd>
+      <h2>Your standing</h2>
+      {moderated ? (
+        <p className="notice-inline">A moderator has hidden this account from the leaderboard.</p>
+      ) : !me.leaderboardOptIn ? (
+        <p className="muted">You’re hidden from the leaderboard. Turn on “Show me on the leaderboard” below to appear.</p>
+      ) : you?.eligible ? (
+        <div className="standing">
+          <span className="standing-rank">#{you.rank}</span>
+          <span className="muted">
+            {windowLabel.toLowerCase()} ·{' '}
+            <span className={windowPnl > 0 ? 'up' : windowPnl < 0 ? 'down' : ''}>{formatUsd(windowPnl, { signed: true })}</span>
+          </span>
         </div>
+      ) : (
+        board && (
+          <div className="steps">
+            <p className="muted">To appear on the board:</p>
+            <ul>
+              {steps.map((st) => (
+                <li key={st.label} className={st.done ? 'done' : ''}>
+                  {st.done ? <CheckIcon size={14} /> : <CircleIcon size={14} />}
+                  <span>{st.label}</span>
+                  <span className="muted">{st.done ? 'Done' : st.detail}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      )}
+
+      <dl className="profile-stats">
         <div>
           <dt>Lifetime PnL</dt>
           <dd className={lifetime > 0 ? 'up' : lifetime < 0 ? 'down' : ''}>{formatUsd(lifetime, { signed: true })}</dd>
         </div>
         <div>
-          <dt>Resets</dt>
+          <dt title="Times you started over with $1,000. Losses from before a reset still count">Resets</dt>
           <dd>{me.resets}</dd>
         </div>
       </dl>
-      {me.leaderboardHidden || me.suspension ? (
-        <p className="notice-inline">A moderator has hidden this account from the leaderboard.</p>
-      ) : (
-        reason && <p className="notice-inline">Not on the board yet: {reason}.</p>
+      {me.leaderboardOptIn && !moderated && (
+        <a className="primary-link" href={traderPath(me.handle)}>
+          View your public profile
+        </a>
       )}
-      <form
-        className="profile-form"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (handle.trim()) void save({ handle: handle.trim() })
-        }}
-      >
-        <label className="field">
-          <span>New handle</span>
-          <input
-            value={handle}
-            onChange={(e) => setHandle(e.target.value)}
-            placeholder={me.handle}
-            maxLength={24}
-            autoComplete="off"
-            disabled={!!me.suspension}
-          />
-        </label>
-        <button type="submit" className="primary" disabled={saving || !handle.trim() || !!me.suspension}>
-          Save
-        </button>
-      </form>
+
+      <h2 className="profile-settings">Settings</h2>
+      {editing ? (
+        <form
+          className="profile-form"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (handle.trim()) void save({ handle: handle.trim() })
+          }}
+        >
+          <label className="field">
+            <span>New handle</span>
+            <input
+              value={handle}
+              onChange={(e) => setHandle(e.target.value)}
+              placeholder={me.handle}
+              maxLength={24}
+              autoComplete="off"
+              autoFocus
+            />
+          </label>
+          <span className="profile-form-actions">
+            <button type="button" className="ghost small-btn" onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+            <button type="submit" className="primary small-btn" disabled={saving || !handle.trim()}>
+              Save
+            </button>
+          </span>
+          <p className="muted small">Public. 3–24 lowercase letters, digits, - or _.</p>
+        </form>
+      ) : (
+        <div className="setting-row">
+          <span>
+            <span className="muted">Handle</span> <span className="mono">{me.handle}</span>
+          </span>
+          {!me.suspension && (
+            <button type="button" className="small-btn" onClick={() => setEditing(true)}>
+              Change
+            </button>
+          )}
+        </div>
+      )}
       <label className="check">
         <input
           type="checkbox"
@@ -213,8 +293,8 @@ function ProfileCard({ reason }: { reason?: string }) {
         />
         Show me on the leaderboard
       </label>
+      <p className="muted small">Turning this off also hides your public profile.</p>
       {error && <p className="form-error">{error}</p>}
-      <p className="muted small">Handles are public. 3–24 lowercase letters, digits, - or _.</p>
     </section>
   )
 }
