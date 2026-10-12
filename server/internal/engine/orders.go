@@ -650,7 +650,9 @@ func (e *Engine) afterFill(ctx context.Context, a *account, o *accounts.Order) {
 
 // handleEvent fills resting orders that the market traded through. A buy resting at P fills
 // when a trade prints below P or the best ask drops below P; queue position is unknown, so a
-// trade exactly at P doesn't count (docs/plan.md §4.3).
+// trade exactly at P doesn't count (docs/plan.md §4.3). Each fill is capped by what traded
+// through the price (or, for a crossed book, the size quoted through it), so a large order
+// can fill in pieces.
 func (e *Engine) handleEvent(ctx context.Context, ev event) {
 	orders := e.resting[ev.coin]
 	if len(orders) == 0 {
@@ -660,86 +662,110 @@ func (e *Engine) handleEvent(ctx context.Context, ev event) {
 	if !ok || ticker.Stale {
 		return
 	}
-
-	var bestBid, bestAsk decimal.Decimal
+	var book market.Book
 	if ev.trades == nil {
-		book, ok := e.md.Book(ev.coin)
-		if !ok {
+		if book, ok = e.md.Book(ev.coin); !ok {
 			return
-		}
-		if len(book.Bids) > 0 {
-			bestBid = book.Bids[0].Px
-		}
-		if len(book.Asks) > 0 {
-			bestAsk = book.Asks[0].Px
 		}
 	}
 
-	var matched []*accounts.Order
+	type match struct {
+		o     *accounts.Order
+		avail decimal.Decimal
+	}
+	var matched []match
 	for _, o := range orders {
 		px := o.Px.Decimal
 		buy := o.Side == SideBuy
-		crossed := false
+		var avail decimal.Decimal
 		if ev.trades != nil {
 			for _, t := range ev.trades {
-				// Trades from before the order rested (e.g. replayed after a reconnect)
-				// don't count.
+				// Trades from before the order rested or last filled (e.g. replayed after a
+				// reconnect) don't count.
 				if t.Time <= o.UpdatedAt.UnixMilli() {
 					continue
 				}
 				if (buy && t.Px.LessThan(px)) || (!buy && t.Px.GreaterThan(px)) {
-					crossed = true
-					break
+					avail = avail.Add(t.Sz)
 				}
 			}
 		} else {
-			crossed = (buy && !bestAsk.IsZero() && bestAsk.LessThan(px)) ||
-				(!buy && !bestBid.IsZero() && bestBid.GreaterThan(px))
+			avail = sizeThrough(book, buy, px)
 		}
-		if crossed {
-			matched = append(matched, o)
+		if avail.IsPositive() {
+			matched = append(matched, match{o, avail})
 		}
 	}
-	slices.SortFunc(matched, func(a, b *accounts.Order) int { return a.CreatedAt.Compare(b.CreatedAt) })
-	for _, o := range matched {
-		if _, still := e.owners[o.ID]; !still {
+	slices.SortFunc(matched, func(a, b match) int { return a.o.CreatedAt.Compare(b.o.CreatedAt) })
+	for _, m := range matched {
+		if _, still := e.owners[m.o.ID]; !still {
 			continue // cancelled by an earlier fill's OCO or reduce-only cleanup
 		}
-		if err := e.fillResting(ctx, o, ticker); err != nil {
-			slog.Error("engine: fill resting order", "order", o.ID, "err", err)
+		if err := e.fillResting(ctx, m.o, ticker, m.avail); err != nil {
+			slog.Error("engine: fill resting order", "order", m.o.ID, "err", err)
 		}
 	}
 }
 
-// fillResting fills the rest of a resting limit order at its limit price, as a maker.
-func (e *Engine) fillResting(ctx context.Context, o *accounts.Order, ticker market.Ticker) error {
+// sizeThrough is the size quoted on the other side strictly better than px: asks below a
+// resting buy at px, or bids above a resting sell.
+func sizeThrough(book market.Book, buy bool, px decimal.Decimal) decimal.Decimal {
+	var total decimal.Decimal
+	if buy {
+		for _, l := range book.Asks {
+			if !l.Px.LessThan(px) {
+				break
+			}
+			total = total.Add(l.Sz)
+		}
+	} else {
+		for _, l := range book.Bids {
+			if !l.Px.GreaterThan(px) {
+				break
+			}
+			total = total.Add(l.Sz)
+		}
+	}
+	return total
+}
+
+// fillResting fills up to avail of a resting limit order at its limit price, as a maker.
+// What's left keeps resting.
+func (e *Engine) fillResting(ctx context.Context, o *accounts.Order, ticker market.Ticker, avail decimal.Decimal) error {
 	a := e.owners[o.ID]
 	if a == nil {
 		return fmt.Errorf("order %s has no loaded account", o.ID)
 	}
 	buy := o.Side == SideBuy
-	sz := o.Sz.Sub(o.FilledSz)
+	sz := decimal.Min(o.Sz.Sub(o.FilledSz), avail.RoundDown(int32(ticker.SzDecimals)))
+	if !sz.IsPositive() {
+		return nil // less than one size step traded through
+	}
 	px := o.Px.Decimal
 	now := e.now()
 	pos := a.position(o.Coin, e.defaultLeverage(ticker))
 
 	updated := *o
-	updated.Status = StatusFilled
 	updated.UpdatedAt = now
+	reducedToPosition := false
 	if o.ReduceOnly {
 		r := reducible(pos, buy)
 		if r.IsZero() {
 			return e.closeOrders(ctx, a, []*accounts.Order{o}, "cancelled: reduce-only and the position is already closed")
 		}
 		if r.LessThan(sz) {
-			sz = r
+			sz, reducedToPosition = r, true
 			updated.StatusReason = ptr("reduce-only: size reduced to the open position")
 		}
 	}
 	updated.FilledSz = o.FilledSz.Add(sz)
+	done := reducedToPosition || !updated.FilledSz.LessThan(o.Sz)
+	if done {
+		updated.Status = StatusFilled
+	}
 
 	rec := e.newFill(pos, &o.ID, o.Coin, buy, sz, px, Fee(sz, px, e.cfg.MakerFeeRate), "maker", now)
-	if !o.ReduceOnly && !e.affordableAfter(a, pos, &updated, &rec, false) {
+	if !o.ReduceOnly && !e.affordableAfter(a, pos, &updated, &rec, !done) {
 		return e.closeOrders(ctx, a, []*accounts.Order{o}, "cancelled: insufficient margin when it would have filled")
 	}
 
@@ -752,7 +778,11 @@ func (e *Engine) fillResting(ctx context.Context, o *accounts.Order, ticker mark
 	if err != nil {
 		return err
 	}
-	e.forget(a, o)
+	if done {
+		e.forget(a, o)
+	} else {
+		*o = updated // still resting: the indexes point at o
+	}
 	e.applyFill(a, rec)
 	e.publish(a.id, AccountEvent{Type: "fill", Order: &updated, Fill: &rec.fill})
 	e.afterFill(ctx, a, &updated)

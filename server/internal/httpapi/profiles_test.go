@@ -54,6 +54,11 @@ func TestTraderProfile(t *testing.T) {
 		p["bestTrade"] != "50" || p["volume"] != "540" || p["rank"] != 0.0 {
 		t.Errorf("profile = %v", p)
 	}
+	// The long closed at +50; the -20 sell opened a short that's still open.
+	perf := p["performance"].(map[string]any)
+	if perf["roundTrips"] != 1.0 || perf["wins"] != 1.0 || perf["avgWin"] != "50" || perf["profitFactor"] != nil {
+		t.Errorf("performance = %v", perf)
+	}
 	positions := p["positions"].([]any)
 	if len(positions) != 1 || positions[0].(map[string]any)["coin"] != "BTC" {
 		t.Errorf("positions = %v, want only the open BTC short", positions)

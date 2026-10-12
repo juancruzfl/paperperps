@@ -1736,6 +1736,68 @@ button.primary.danger {
   box-shadow: inset 2px 0 var(--short);
 }
 
+.trade-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.trade-stats-grid > div {
+  padding: 12px;
+}
+
+.trade-stats-grid > div:not(:nth-child(3n + 1)) {
+  border-left: 1px solid var(--border);
+}
+
+.trade-stats-grid > div:nth-child(n + 4) {
+  border-top: 1px solid var(--border);
+}
+
+.trade-stats-grid dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.trade-stats-grid dt[title] {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+.trade-stats-grid dd {
+  margin: 4px 0 0;
+  font-family: var(--mono);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-stats-tables {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.trade-stats-tables > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.trade-stats .data-table td a {
+  font-weight: 600;
+  color: inherit;
+  text-decoration: none;
+}
+
+.trade-stats .data-table td a:hover {
+  text-decoration: underline;
+}
+
+.trade-stats-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
 .trader-missing {
   max-width: 560px;
   margin: 40px auto;
@@ -1766,6 +1828,31 @@ button.primary.danger {
 @media (max-width: 640px) {
   .trader-overview {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trade-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trade-stats-grid > div {
+    border-left: 0 !important;
+  }
+
+  .trade-stats-grid > div:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+  }
+
+  .trade-stats-grid > div:nth-child(2n) {
+    border-left: 1px solid var(--border) !important;
+  }
+
+  .trade-stats-tables {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trade-stats-tables > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--border);
   }
 
   .trader-tiles {
@@ -1816,6 +1903,192 @@ button.primary.danger {
 
 .dialog .share-note {
   margin: 10px 0 0;
+}
+
+/* ---------- trade journal ---------- */
+
+.fill-note {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  font-family: var(--sans);
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.fill-note-add {
+  margin-left: 0;
+  padding: 0;
+  font-family: var(--sans);
+}
+
+.note-dialog {
+  width: min(480px, calc(100vw - 32px));
+  /* Opened from a table cell: don't inherit its number font or nowrap. */
+  font-family: var(--sans);
+  white-space: normal;
+}
+
+.note-input {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  resize: vertical;
+}
+
+.note-input:focus {
+  border-color: var(--muted);
+  outline: none;
+}
+
+.note-count {
+  margin-top: 4px;
+  text-align: right;
+}
+
+.note-delete {
+  margin-right: auto;
+}
+
+/* ---------- price alerts ---------- */
+
+.alerts-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.alerts-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--bg);
+  background: var(--long);
+}
+
+.alerts-dialog {
+  width: min(420px, calc(100vw - 32px));
+  /* Opened from the stats bar: don't inherit its nowrap. */
+  white-space: normal;
+}
+
+.alerts-dialog .mono {
+  font-family: var(--mono);
+}
+
+.alerts-form {
+  display: flex;
+  gap: 8px;
+}
+
+.alerts-form .field {
+  flex: 1;
+}
+
+.alerts-list {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+
+.alerts-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog .alerts-note {
+  margin: 12px 0 0;
+}
+
+/* ---------- beginner guide ---------- */
+
+.guide-spot,
+.guide-dim {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.guide-spot {
+  border: 2px solid var(--long);
+  border-radius: 10px;
+  /* Darken everything but the highlighted control. */
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  transition: top 0.2s, left 0.2s, width 0.2s, height 0.2s;
+}
+
+.guide-dim {
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.guide-card {
+  position: fixed;
+  z-index: 61;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  outline: none;
+}
+
+.guide-card h3 {
+  margin: 2px 0 8px;
+  font-size: 16px;
+}
+
+.guide-body p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.guide-body a {
+  color: var(--long);
+}
+
+.guide-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.guide-actions .link {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.guide-nav {
+  display: flex;
+  gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-spot {
+    transition: none;
+  }
 }
 
 /* ---------- order book grouping ---------- */

@@ -66,6 +66,12 @@ export const api = {
     request<Leaderboard>(`/api/leaderboard?window=${window}`, { secret: secret ?? undefined }),
   trader: (handle: string) => request<TraderProfile>(`/api/traders/${encodeURIComponent(handle)}`),
   fills: (secret: string) => request<Fill[]>('/api/me/fills', { secret }),
+  setFillNote: (secret: string, id: string, note: string) =>
+    request<void>(`/api/me/fills/${encodeURIComponent(id)}/note`, {
+      method: 'PUT',
+      secret,
+      body: JSON.stringify({ note }),
+    }),
   orderHistory: (secret: string) => request<Order[]>('/api/me/orders', { secret }),
   funding: (secret: string) => request<FundingPayment[]>('/api/me/funding', { secret }),
   placeOrder: (secret: string, order: NewOrder) =>

@@ -9,6 +9,7 @@ import { roe } from '../lib/share'
 import type { TraderProfile } from '../lib/types'
 import { PnlChart } from './PnlChart'
 import { ShareButton } from './ShareButton'
+import { TradeStats } from './TradeStats'
 
 const tone = (n: number) => (n > 0 ? 'up' : n < 0 ? 'down' : '')
 
@@ -19,6 +20,7 @@ export function TraderPage() {
   const tickers = useTickers()
   const [profile, setProfile] = useState<TraderProfile | null>(null)
   const [range, setRange] = useState<PnlRange>('30d')
+  const [tab, setTab] = useState<'positions' | 'stats'>('positions')
   const [error, setError] = useState<{ handle: string; notFound: boolean; message: string } | null>(null)
 
   useEffect(() => {
@@ -186,11 +188,28 @@ export function TraderPage() {
 
       <section className="card trader-positions">
         <div className="tabs" role="tablist" aria-label="Account">
-          <button type="button" role="tab" aria-selected className="active">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'positions'}
+            className={tab === 'positions' ? 'active' : ''}
+            onClick={() => setTab('positions')}
+          >
             Positions{current.positions.length > 0 && ` (${current.positions.length})`}
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'stats'}
+            className={tab === 'stats' ? 'active' : ''}
+            onClick={() => setTab('stats')}
+          >
+            Trade stats
+          </button>
         </div>
-        {current.positions.length === 0 ? (
+        {tab === 'stats' ? (
+          <TradeStats perf={current.performance} />
+        ) : current.positions.length === 0 ? (
           <div className="panel-empty">No open positions.</div>
         ) : (
           <div className="table-wrap">

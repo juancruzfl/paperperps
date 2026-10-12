@@ -42,6 +42,13 @@ export function useTraderHandle(): string {
   return useSyncExternalStore(subscribe, traderFromPath)
 }
 
+/** Goes to an in-app path, as a link click would. */
+export function navigate(path: string) {
+  if (location.pathname !== path) history.pushState(null, '', path)
+  for (const l of listeners) l()
+  window.scrollTo(0, 0)
+}
+
 /**
  * Makes plain <a href="/…"> links inside the app navigate without a page reload. Links with
  * a modifier key, a target or another origin behave normally.
@@ -53,9 +60,7 @@ export function interceptLinks() {
     if (!a || a.target || a.origin !== location.origin || !a.pathname.startsWith('/')) return
     if (a.getAttribute('href')?.startsWith('mailto:')) return
     e.preventDefault()
-    if (a.pathname !== location.pathname) history.pushState(null, '', a.pathname)
-    for (const l of listeners) l()
-    window.scrollTo(0, 0)
+    navigate(a.pathname)
   })
 }
 

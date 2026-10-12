@@ -244,6 +244,34 @@ func handleHistory[T any](what string, list func(context.Context, uuid.UUID, int
 	}
 }
 
+// handleSetFillNote saves or clears the trader's journal note on one of their fills.
+func handleSetFillNote(store *accounts.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		fill, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			notFound(w)
+			return
+		}
+		var req struct {
+			Note string `json:"note"`
+		}
+		if !decodeBody(w, r, &req) {
+			return
+		}
+		switch err := store.SetFillNote(r.Context(), accountID(r), fill, req.Note); {
+		case errors.Is(err, accounts.ErrNotFound):
+			notFound(w)
+		case errors.Is(err, accounts.ErrNoteTooLong):
+			writeError(w, http.StatusBadRequest, "note_too_long",
+				fmt.Sprintf("notes can be at most %d characters", accounts.MaxNoteLength))
+		case err != nil:
+			internalError(w, "fill note", err)
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
 func handlePlaceOrder(eng *engine.Engine) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req engine.OrderRequest

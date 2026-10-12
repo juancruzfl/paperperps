@@ -22,6 +22,8 @@ type traderProfile struct {
 	// Rank on the all-time board; 0 while the account doesn't qualify yet.
 	Rank int `json:"rank"`
 	accounts.TraderStats
+	// Performance covers closed positions (round trips), after fees.
+	Performance accounts.TradePerformance `json:"performance"`
 	Equity    []publicEquityPoint `json:"equity"`
 	Positions []publicPosition    `json:"positions"`
 }
@@ -58,6 +60,10 @@ func loadProfile(ctx context.Context, d Deps, handle string) (traderProfile, err
 	if err != nil {
 		return traderProfile{}, err
 	}
+	perf, err := d.Accounts.TradePerformance(ctx, id)
+	if err != nil {
+		return traderProfile{}, err
+	}
 	points, err := d.Accounts.Equity(ctx, id, time.Now())
 	if err != nil {
 		return traderProfile{}, err
@@ -69,6 +75,7 @@ func loadProfile(ctx context.Context, d Deps, handle string) (traderProfile, err
 		LifetimePnl: engine.Score(a.PriorPnl, a.Balance, sum.UnrealizedPnl, a.StartingBalance).StringFixed(2),
 		Resets:      a.Resets,
 		TraderStats: stats,
+		Performance: perf,
 		Equity:      make([]publicEquityPoint, 0, len(points)),
 		Positions:   []publicPosition{},
 	}

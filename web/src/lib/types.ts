@@ -106,6 +106,7 @@ export type Fill = {
   closedPnl: string
   isLiquidation: boolean
   createdAt: string
+  note: string // private journal note; '' if none
 }
 
 export type FundingPayment = {
@@ -182,8 +183,26 @@ export type TraderProfile = {
   wins: number
   bestTrade: string
   volume: string
+  performance: TradePerformance
   equity: { t: string; cumulativePnl: string }[]
   positions: { coin: string; size: string; entryPx: string; leverage: number; marginMode: 'cross' | 'isolated' }[]
+}
+
+export type SideStats = { trips: number; wins: number; pnl: string }
+
+/** Closed positions (round trips), after fees. */
+export type TradePerformance = {
+  roundTrips: number
+  wins: number
+  losses: number
+  avgWin: string
+  avgLoss: string // negative
+  profitFactor: string | null // null without losses
+  avgHoldSeconds: number
+  longestLosingStreak: number
+  long: SideStats
+  short: SideStats
+  byCoin: (SideStats & { coin: string })[]
 }
 
 export type LeaderboardWindow = '24h' | '7d' | '30d' | 'all'

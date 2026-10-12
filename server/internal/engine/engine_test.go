@@ -403,6 +403,49 @@ func TestLimitOrderFillsWhenBookCrossesIt(t *testing.T) {
 	eq(t, "short", positionOf(h.load(id), "BTC").Size, "-0.01")
 }
 
+func TestRestingLimitFillsOnlyWhatTradedThrough(t *testing.T) {
+	h := newHarness(t)
+	id := h.newAccount()
+	res := h.mustPlace(id, SideBuy, TypeLimit, "0.01", "81000")
+	orderID := res.Order.ID
+
+	// 0.004 trades through the price (one print at the limit doesn't count): 0.004 fills,
+	// the rest keeps resting with its margin reserved.
+	later := time.Now().Add(time.Second).UnixMilli()
+	h.eng.NewTrades("BTC", []hyperliquid.Trade{
+		{Coin: "BTC", Px: d("80999"), Sz: d("0.001"), Time: later},
+		{Coin: "BTC", Px: d("81000"), Sz: d("5"), Time: later},
+		{Coin: "BTC", Px: d("80990"), Sz: d("0.003"), Time: later},
+	})
+	eventually(t, "partial fill", func() bool { return positionOf(h.load(id), "BTC").Size.Equal(d("0.004")) })
+	a := h.load(id)
+	if len(a.OpenOrders) != 1 || a.OpenOrders[0].ID != orderID || a.OpenOrders[0].Status != StatusOpen {
+		t.Fatalf("open orders = %+v", a.OpenOrders)
+	}
+	eq(t, "filled so far", a.OpenOrders[0].FilledSz, "0.004")
+	eq(t, "margin on the rest", SummarizeAccount(a, h.md).OrderMargin, "24.3") // 0.006 × 81000 / 20
+
+	// Less than one size step through the price: nothing happens.
+	h.eng.NewTrades("BTC", []hyperliquid.Trade{{Coin: "BTC", Px: d("80000"), Sz: d("0.000004"), Time: later + 1000}})
+	time.Sleep(50 * time.Millisecond)
+	eq(t, "dust ignored", positionOf(h.load(id), "BTC").Size, "0.004")
+
+	// A crossed book fills at most the size quoted through the price: 0.002 of the 0.006 left.
+	h.md.setLevels("BTC", levels("80000", "1"), levels("80900", "0.002", "81000", "5"))
+	h.eng.BookChanged("BTC")
+	eventually(t, "book fill", func() bool { return positionOf(h.load(id), "BTC").Size.Equal(d("0.006")) })
+
+	// Then enough trades through to finish it.
+	h.eng.NewTrades("BTC", []hyperliquid.Trade{{Coin: "BTC", Px: d("80000"), Sz: d("1"), Time: time.Now().Add(2 * time.Second).UnixMilli()}})
+	eventually(t, "filled", func() bool { return len(h.load(id).OpenOrders) == 0 })
+	eq(t, "position", positionOf(h.load(id), "BTC").Size, "0.01")
+	fills, _ := h.store.Fills(context.Background(), id, 10)
+	if len(fills) != 3 {
+		t.Errorf("fills = %d, want 3", len(fills))
+	}
+	h.checkLedger(id)
+}
+
 func TestCrossingLimitTakesThenRests(t *testing.T) {
 	h := newHarness(t)
 	id := h.newAccount()

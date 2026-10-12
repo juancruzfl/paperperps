@@ -13,6 +13,7 @@ const fill = (side: 'buy' | 'sell', px: string, sz: string, closedPnl: string): 
   liquidity: 'taker',
   closedPnl,
   isLiquidation: false,
+  note: '',
   createdAt: '2026-10-10T00:00:00Z',
 })
 

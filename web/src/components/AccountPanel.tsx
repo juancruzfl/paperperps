@@ -4,6 +4,7 @@ import { describeFill, loadHistory, refreshAccount, useAccount } from '../lib/ac
 import { formatNumber, formatPct, formatUsd, pxDecimals } from '../lib/format'
 import { coinStates, liquidationPrice, positionMargin, summarize, unrealizedPnl } from '../lib/margin'
 import { IsolatedMarginControl } from './MarginControls'
+import { FillNote } from './FillNote'
 import { Performance } from './Performance'
 import { ShareButton } from './ShareButton'
 import { ModifyOrderControl, PositionTPSLControl } from './OrderDialogs'
@@ -285,6 +286,7 @@ function TradeHistory() {
           <th className="num">Value</th>
           <th className="num">Fee</th>
           <th className="num">Closed PnL</th>
+          <th>Note</th>
         </tr>
       </thead>
       <tbody>
@@ -324,6 +326,12 @@ function TradeHistory() {
                     )}
                   </span>
                 )}
+              </td>
+              <td>
+                <FillNote
+                  fill={f}
+                  title={`${f.side === 'buy' ? 'Buy' : 'Sell'} ${formatNumber(f.sz, dec.sz)} ${f.coin} @ ${formatNumber(f.px, dec.px)}`}
+                />
               </td>
             </tr>
           )

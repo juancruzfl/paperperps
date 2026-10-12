@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { AccountMenu, RecoveryNotice } from './components/AccountMenu'
 import { AccountPanel } from './components/AccountPanel'
+import { Guide } from './components/Guide'
 import { Chart } from './components/Chart'
 import { LeaderboardPage } from './components/LeaderboardPage'
 import { MarketSelector } from './components/MarketSelector'
@@ -14,6 +15,7 @@ import { chartLines } from './lib/chartLines'
 import { LEGAL_CONTACT } from './lib/legal'
 import { fetchStatus, useConnection, useTickers, useTrades } from './lib/market'
 import { DEFAULT_COIN, useCoin, usePage } from './lib/route'
+import { alertLines, checkPriceAlerts, usePriceAlerts } from './lib/priceAlerts'
 import type { Status } from './lib/types'
 import './App.css'
 
@@ -38,7 +40,12 @@ function App() {
   const tickers = useTickers()
   const ticker = tickers.find((t) => t.coin === coin)
   const me = useAccount((s) => s.me)
-  const lines = useMemo(() => chartLines(me, tickers, coin), [me, tickers, coin])
+  const priceAlerts = usePriceAlerts((s) => s.alerts)
+  const lines = useMemo(
+    () => [...chartLines(me, tickers, coin), ...alertLines(priceAlerts, coin)],
+    [me, tickers, coin, priceAlerts],
+  )
+  useEffect(() => checkPriceAlerts(tickers), [tickers])
   const [bookTab, setBookTab] = useState<BookTab>('book')
   // On phones the chart and the book/trades panel take turns in one spot.
   const [showChart, setShowChart] = useState(true)
@@ -160,6 +167,7 @@ function App() {
         </>
       )}
 
+      {page === 'trade' && <Guide ticker={ticker} />}
       <Toasts />
       <Footer status={status} />
     </div>

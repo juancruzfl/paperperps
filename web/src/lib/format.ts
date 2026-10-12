@@ -87,3 +87,16 @@ export function fundingCountdown(nowMs: number): string {
   const s = Math.floor((left % 60_000) / 1000)
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
+
+/** A duration as its two largest units: 45s, 12m, 3h 12m, 2d 4h. */
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '—'
+  const s = Math.round(seconds)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`
+  const d = Math.floor(h / 24)
+  return h % 24 ? `${d}d ${h % 24}h` : `${d}d`
+}

@@ -33,6 +33,7 @@ type asset struct {
 var assets = []*asset{
 	{Name: "BTC", SzDecimals: 5, MaxLeverage: 40, tick: 1, prevDay: 80000},
 	{Name: "ETH", SzDecimals: 4, MaxLeverage: 25, tick: 0.1, prevDay: 2500},
+	{Name: "SOL", SzDecimals: 2, MaxLeverage: 20, tick: 0.01, prevDay: 150},
 }
 
 type market struct {

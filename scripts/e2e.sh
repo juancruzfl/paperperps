@@ -27,7 +27,7 @@ psql "$ADMIN_URL" -qtAc "CREATE DATABASE $DB" >/dev/null
 
 "$BIN/fakehl" -addr :9999 >"$BIN/fakehl.log" 2>&1 &
 PIDS+=($!)
-DATABASE_URL=$DB_URL PORT=8098 WEB_DIR="$ROOT/web/dist" MARKETS=BTC,ETH \
+DATABASE_URL=$DB_URL PORT=8098 WEB_DIR="$ROOT/web/dist" MARKETS=BTC,ETH,SOL \
   HL_INFO_URL=http://localhost:9999/info HL_WS_URL=ws://localhost:9999/ws \
   "$BIN/paperperps" >"$BIN/server.log" 2>&1 &
 PIDS+=($!)

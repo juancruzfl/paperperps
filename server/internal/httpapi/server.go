@@ -97,6 +97,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/traders/{handle}/card.png", limit(d.Profiles, ratelimit.ClientIP, handleTraderCard(d)))
 	mux.HandleFunc("GET /api/me/orders", auth(handleHistory("order history", d.Accounts.OrderHistory)))
 	mux.HandleFunc("GET /api/me/fills", auth(handleHistory("fills", d.Accounts.Fills)))
+	mux.HandleFunc("PUT /api/me/fills/{id}/note", trade(handleSetFillNote(d.Accounts)))
 	mux.HandleFunc("GET /api/me/funding", auth(handleHistory("funding", d.Accounts.Funding)))
 	mux.HandleFunc("PUT /api/me/leverage/{coin}", trade(handleSetLeverage(d.Engine)))
 	mux.HandleFunc("PUT /api/me/margin-mode/{coin}", trade(handleSetMarginMode(d.Engine)))

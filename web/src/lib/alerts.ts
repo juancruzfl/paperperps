@@ -1,5 +1,5 @@
 // Alerts for things that happen while you're not clicking: resting orders filling, stops
-// and take-profits firing, liquidations. Each shows a toast, plays a short sound, and, when
+// and take-profits firing, liquidations, price alerts (priceAlerts.ts). Each shows a toast, plays a short sound, and, when
 // the tab is in the background and you've allowed it, a desktop notification.
 // Preferences are per browser, in localStorage.
 
@@ -104,9 +104,9 @@ export function alertOnce(key: string): boolean {
 }
 
 /** Toast, sound, and (in the background, if enabled) a desktop notification. */
-export function raiseAlert(kind: 'fill' | 'liquidation', title: string, body: string) {
-  toast(body, kind === 'fill' ? 'success' : 'error', kind === 'fill' ? 6000 : 15000)
-  playTone(kind)
+export function raiseAlert(kind: 'fill' | 'liquidation' | 'price', title: string, body: string) {
+  toast(body, kind === 'liquidation' ? 'error' : kind === 'price' ? 'info' : 'success', kind === 'liquidation' ? 15000 : 8000)
+  playTone(kind === 'liquidation' ? 'liquidation' : 'fill')
   if (useAlertPrefs.getState().desktop && desktopPermission() === 'granted' && document.hidden) {
     try {
       new Notification(title, { body, icon: '/icon-192.png', tag: `paperperps-${kind}` })
