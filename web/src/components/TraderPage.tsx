@@ -4,6 +4,7 @@ import { useAccount } from '../lib/account'
 import { formatNumber, formatPct, formatUsd, formatUsdCompact, pxDecimals } from '../lib/format'
 import { useTickers } from '../lib/market'
 import { traderPath, useTraderHandle } from '../lib/route'
+import { PNL_RANGES, pnlWindow, type PnlRange } from '../lib/pnlRange'
 import { roe } from '../lib/share'
 import type { TraderProfile } from '../lib/types'
 import { PnlChart } from './PnlChart'
@@ -17,6 +18,7 @@ export function TraderPage() {
   const me = useAccount((s) => s.me)
   const tickers = useTickers()
   const [profile, setProfile] = useState<TraderProfile | null>(null)
+  const [range, setRange] = useState<PnlRange>('30d')
   const [error, setError] = useState<{ handle: string; notFound: boolean; message: string } | null>(null)
 
   useEffect(() => {
@@ -73,18 +75,23 @@ export function TraderPage() {
   const pnl = Number(current.lifetimePnl)
   const winRate = current.closedTrades > 0 ? current.wins / current.closedTrades : null
   const joined = new Date(current.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const best = Number(current.bestTrade)
+  const win = pnlWindow(current.equity, pnl, range)
+  const rangeLabel = PNL_RANGES.find((r) => r.id === range)?.label ?? ''
 
   return (
-    <main className="page">
-      <div className="page-head">
-        <div>
-          <h1 className="trader-name">
-            {current.handle}
-            {isYou && <span className="badge">you</span>}
-          </h1>
-          <p className="muted">
-            {current.rank > 0 ? `#${current.rank} all time` : 'Not ranked yet'} · trading since {joined}
-          </p>
+    <main className="page trader-page">
+      <div className="trader-head">
+        <div className="trader-id">
+          <div>
+            <h1 className="trader-name">
+              {current.handle}
+              {isYou && <span className="badge">you</span>}
+            </h1>
+            <p className="muted small">
+              {current.rank > 0 ? <span className="trader-rank">#{current.rank} all time</span> : 'Not ranked yet'} · trading since {joined}
+            </p>
+          </div>
         </div>
         <ShareButton
           className="ghost"
@@ -101,42 +108,88 @@ export function TraderPage() {
         />
       </div>
 
-      <dl className="trader-stats card">
-        <div>
-          <dt>Lifetime PnL</dt>
-          <dd className={tone(pnl)}>{formatUsd(pnl, { signed: true })}</dd>
+      <div className="trader-overview">
+        <div className="trader-tiles">
+          <section className="card trader-tile">
+            <h2>Lifetime PnL</h2>
+            <p className={`trader-big ${tone(pnl)}`}>{formatUsd(pnl, { signed: true })}</p>
+          </section>
+          <section className="card trader-tile">
+            <h2>Volume</h2>
+            <p className="trader-big">{formatUsdCompact(Number(current.volume))}</p>
+            <p className="muted small">{current.trades.toLocaleString('en-US')} {current.trades === 1 ? 'trade' : 'trades'}</p>
+          </section>
         </div>
-        <div>
-          <dt>Win rate</dt>
-          <dd>{winRate === null ? '—' : formatPct(winRate, 0).replace('+', '')}</dd>
-        </div>
-        <div>
-          <dt>Best trade</dt>
-          <dd className={tone(Number(current.bestTrade))}>
-            {Number(current.bestTrade) > 0 ? formatUsd(Number(current.bestTrade), { signed: true }) : '—'}
-          </dd>
-        </div>
-        <div>
-          <dt>Trades</dt>
-          <dd>{current.trades.toLocaleString('en-US')}</dd>
-        </div>
-        <div>
-          <dt>Volume</dt>
-          <dd>{formatUsdCompact(Number(current.volume))}</dd>
-        </div>
-        <div>
-          <dt>Resets</dt>
-          <dd>{current.resets}</dd>
-        </div>
-      </dl>
 
-      <section className="card trader-section">
-        <h2 className="panel-title">PnL over time</h2>
-        <PnlChart points={current.equity} live={null} empty="No history yet. Points are added every 5 minutes while trading." />
-      </section>
+        <section className="card trader-summary">
+          <div className="trader-summary-head">
+            <h2>Performance</h2>
+            <div className="trader-ranges" role="tablist" aria-label="Time range">
+              {PNL_RANGES.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={range === r.id}
+                  className={range === r.id ? 'active' : ''}
+                  onClick={() => setRange(r.id)}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <dl className="trader-rows">
+            <div>
+              <dt>PnL ({rangeLabel})</dt>
+              <dd className={tone(win.pnl)}>{formatUsd(win.pnl, { signed: true })}</dd>
+            </div>
+            <div>
+              <dt>Max drawdown ({rangeLabel})</dt>
+              <dd className={win.maxDrawdown > 0 ? 'down' : ''}>{win.maxDrawdown > 0 ? formatUsd(-win.maxDrawdown) : '—'}</dd>
+            </div>
+            <div>
+              <dt>Win rate</dt>
+              <dd>
+                {winRate === null ? '—' : formatPct(winRate, 0).replace('+', '')}
+                {winRate !== null && <span className="muted"> · {current.wins}/{current.closedTrades}</span>}
+              </dd>
+            </div>
+            <div>
+              <dt>Best trade</dt>
+              <dd className={tone(best)}>{best > 0 ? formatUsd(best, { signed: true }) : '—'}</dd>
+            </div>
+            <div>
+              <dt>Open positions</dt>
+              <dd>{current.positions.length}</dd>
+            </div>
+            <div>
+              <dt>Resets</dt>
+              <dd>{current.resets}</dd>
+            </div>
+          </dl>
+        </section>
 
-      <section className="card trader-section">
-        <h2 className="panel-title">Open positions</h2>
+        <section className="card trader-chart">
+          <div className="tabs" role="tablist" aria-label="Chart">
+            <button type="button" role="tab" aria-selected className="active">
+              PnL · {rangeLabel}
+            </button>
+          </div>
+          <PnlChart
+            points={win.points}
+            live={win.points.length > 0 ? win.pnl : null}
+            empty={range === 'all' ? 'No history yet. Points are added every 5 minutes while trading.' : 'No activity in this range.'}
+          />
+        </section>
+      </div>
+
+      <section className="card trader-positions">
+        <div className="tabs" role="tablist" aria-label="Account">
+          <button type="button" role="tab" aria-selected className="active">
+            Positions{current.positions.length > 0 && ` (${current.positions.length})`}
+          </button>
+        </div>
         {current.positions.length === 0 ? (
           <div className="panel-empty">No open positions.</div>
         ) : (
@@ -146,8 +199,9 @@ export function TraderPage() {
                 <tr>
                   <th>Coin</th>
                   <th className="num">Size</th>
+                  <th className="num hide-sm">Position value</th>
                   <th className="num">Entry</th>
-                  <th className="num">Mark</th>
+                  <th className="num hide-sm">Mark</th>
                   <th className="num">PnL (ROE)</th>
                 </tr>
               </thead>
@@ -161,16 +215,21 @@ export function TraderPage() {
                   const dec = pxDecimals(entry, t?.szDecimals ?? 4)
                   const r = upnl === null || mark === null ? null : roe(upnl, size, mark, p.leverage)
                   return (
-                    <tr key={p.coin}>
+                    <tr key={p.coin} className={size > 0 ? 'pos-long' : 'pos-short'}>
                       <td>
-                        <a href={`/trade/${encodeURIComponent(p.coin)}`}>{p.coin}</a>
-                        <span className="badge">{p.leverage}x</span>
+                        <a className={tone(size)} href={`/trade/${encodeURIComponent(p.coin)}`}>
+                          {p.coin}
+                        </a>
+                        <span className="badge">
+                          {p.leverage}x {p.marginMode === 'isolated' ? 'iso' : 'cross'}
+                        </span>
                       </td>
                       <td className={`num ${tone(size)}`}>
                         {size > 0 ? 'Long' : 'Short'} {formatNumber(Math.abs(size), t?.szDecimals ?? 4)}
                       </td>
+                      <td className="num hide-sm">{mark === null ? '—' : formatUsd(Math.abs(size) * mark)}</td>
                       <td className="num">{formatNumber(entry, dec)}</td>
-                      <td className="num">{mark === null ? '—' : formatNumber(mark, dec)}</td>
+                      <td className="num hide-sm">{mark === null ? '—' : formatNumber(mark, dec)}</td>
                       <td className={`num ${tone(upnl ?? 0)}`}>
                         {upnl === null ? '—' : `${formatUsd(upnl, { signed: true })}${r === null ? '' : ` (${formatPct(r)})`}`}
                       </td>
@@ -189,3 +248,4 @@ export function TraderPage() {
     </main>
   )
 }
+
