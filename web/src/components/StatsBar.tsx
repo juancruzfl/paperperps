@@ -8,6 +8,7 @@ import {
   pxDecimals,
 } from '../lib/format'
 import type { Ticker } from '../lib/types'
+import { PriceAlertControl } from './PriceAlerts'
 
 function useNow(intervalMs: number) {
   const [now, setNow] = useState(() => Date.now())
@@ -52,6 +53,7 @@ export function StatsBar({ ticker }: { ticker: Ticker | undefined }) {
           Stale data
         </span>
       )}
+      <PriceAlertControl ticker={ticker} />
     </div>
   )
 }

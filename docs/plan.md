@@ -233,8 +233,11 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
   its price (strictly better than the limit), or when the best opposite quote crosses it.
   A trade that only *touches* the price doesn't fill it, because we can't know our place in
   the queue. This rule is conservative on purpose.
-- Partial fills: fill at most the traded size seen at or through our price (optional; v1 can
-  fill completely on the first cross).
+- **Partial fills (built):** each fill is capped by the size that traded strictly through
+  our price since the order rested or last filled, or, when the book crosses it, by the size
+  quoted through it, rounded down to `szDecimals`. The rest keeps resting. Simplifications:
+  each order counts the same trades on its own (our users don't compete with each other for
+  them), and a book that stays crossed fills again on each book update.
 - Maker fee.
 
 ### 4.4 Trigger orders (Stop / TP / SL)
@@ -251,7 +254,7 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
 - Initial margin = `notional / leverage`.
 - Maintenance margin follows HL's rule: half the initial margin at max leverage, so
   `MMR = 1 / (2 × maxLeverage)`.
-- **Margin tiers are not modeled.** On mainnet (checked 2026-10-09) the second tier starts
+- **Margin tiers are not modeled** (reconsidered 2026-10-12, same conclusion). On mainnet (checked 2026-10-09) the second tier starts
   at $3M of notional for ONDO and XPL, and at $20M–$150M for the rest. A $1,000 account
   would need hundreds of times its money in profit to reach that. Revisit if the leaderboard
   ever shows accounts that large.

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { startGuide } from '../lib/guide'
 import { desktopPermission, setDesktop, setSounds, useAlertPrefs } from '../lib/alerts'
 import { api, ApiError } from '../lib/api'
 import {
@@ -74,6 +75,16 @@ export function AccountMenu() {
             }}
           >
             Restore another account…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              startGuide()
+            }}
+          >
+            Beginner guide
           </button>
           <AlertToggles />
           <button
@@ -303,6 +314,13 @@ export function RecoveryNotice() {
         <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.
       </span>
       <span className="notice-actions">
+        <button
+          type="button"
+          className="ghost small-btn"
+          onClick={startGuide}
+        >
+          New to perps? Take the tour
+        </button>
         <button type="button" className="primary small-btn" onClick={() => void copy(recoveryLink(secret), 'Recovery link')}>
           Copy recovery link
         </button>

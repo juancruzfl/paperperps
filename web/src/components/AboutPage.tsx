@@ -36,7 +36,8 @@ export function AboutPage() {
         <li>
           <strong>Limit orders</strong> that cross the book fill immediately as a taker. The rest waits on the book and
           fills at your price once the market trades <em>through</em> it: a trade or a quote strictly better than your
-          price. A trade exactly at your price doesn’t count, because we can’t know where you’d be in the queue.
+          price. A trade exactly at your price doesn’t count, because we can’t know where you’d be in the queue. Each fill
+          is at most the size that traded through your price, so a big order can fill in parts.
         </li>
         <li>
           <strong>Post-only</strong> orders are refused if they would fill immediately. <strong>IOC</strong> orders

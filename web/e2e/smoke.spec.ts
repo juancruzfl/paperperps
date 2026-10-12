@@ -144,3 +144,69 @@ test('a trader shares a position and has a public profile', async ({ page, reque
     await expect(page.getByRole('heading', { name: 'No public profile' })).toBeVisible()
   })
 })
+
+// One test for these, since each test's new account counts toward the server's limit of
+// five new accounts per IP.
+test('a newcomer takes the guide, journals a trade, gets a price alert, and sees trade stats', async ({ page, request }) => {
+  await setPrice(request, 'SOL', 150)
+  await page.goto('/trade/SOL')
+  await expect(page.locator('.book-row.bid').first()).toBeVisible()
+  const handle = (await page.locator('.account-handle').textContent())?.trim() ?? ''
+
+  await test.step('the beginner guide', async () => {
+    await page.getByRole('button', { name: 'New to perps? Take the tour' }).click()
+    await expect(page.getByRole('dialog', { name: 'Welcome to perps' })).toBeVisible()
+    for (const title of ['Pick a market', 'The mark price', 'The order book', 'Leverage']) {
+      await page.getByRole('button', { name: 'Next' }).click()
+      await expect(page.getByRole('dialog', { name: title })).toBeVisible()
+    }
+    await expect(page.getByRole('dialog', { name: 'Leverage' })).toContainText('liquidates it')
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.guide-card')).toHaveCount(0)
+
+    // It can be reopened from the account menu, and ends with a call to trade.
+    await page.locator('.account-button').click()
+    await page.getByRole('menuitem', { name: 'Beginner guide' }).click()
+    for (let i = 0; i < 9; i++) await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: 'Start trading' }).click()
+    await expect(page.locator('.guide-card')).toHaveCount(0)
+  })
+
+  await test.step('open and close a position', async () => {
+    await page.getByLabel('Size (SOL)').fill('2')
+    await page.getByRole('button', { name: 'Buy / Long SOL' }).click()
+    await expect(page.getByRole('tab', { name: 'Positions (1)' })).toBeVisible()
+    await page.getByRole('radio', { name: 'Sell / Short' }).click()
+    await page.getByLabel('Size (SOL)').fill('2')
+    await page.getByRole('button', { name: 'Sell / Short SOL' }).click()
+    await expect(page.getByText('No open positions')).toBeVisible()
+  })
+
+  await test.step('write a journal note on the closing fill', async () => {
+    await page.getByRole('tab', { name: 'Trade History' }).click()
+    await page.locator('.account-panel tbody tr').first().getByRole('button', { name: /Add a note/ }).click()
+    const dialog = page.locator('dialog[open]')
+    await dialog.locator('textarea').fill('Closed too early, the breakout held.')
+    await dialog.getByRole('button', { name: 'Save' }).click()
+    await expect(page.locator('.fill-note')).toHaveText('Closed too early, the breakout held.')
+  })
+
+  await test.step('a price alert fires when the mark reaches it', async () => {
+    await page.getByRole('button', { name: 'Price alerts for SOL' }).click()
+    const dialog = page.locator('dialog[open]')
+    await dialog.getByLabel('SOL at').fill('155')
+    await dialog.getByRole('button', { name: 'Add' }).click()
+    await expect(dialog.locator('.alerts-list li')).toHaveCount(1)
+    await dialog.getByRole('button', { name: 'Done' }).click()
+    await setPrice(request, 'SOL', 156)
+    await expect(page.getByText('Price alert: SOL rose to 155')).toBeVisible()
+    await expect(page.locator('.alerts-count')).toHaveCount(0)
+  })
+
+  await test.step('the profile shows trade stats', async () => {
+    await page.goto(`/u/${handle}`)
+    await page.getByRole('tab', { name: 'Trade stats' }).click()
+    await expect(page.locator('.trade-stats-grid')).toContainText('Closed positions1')
+    await expect(page.locator('.trade-stats').getByRole('cell', { name: 'SOL' })).toBeVisible()
+  })
+})

@@ -176,7 +176,9 @@ function onAccountEvent(msg: ServerMessage) {
     const background = (o.type === 'limit' && ev.fill.liquidity === 'maker') || isTrigger(o.type)
     if (background && alertOnce(`fill:${o.id}`)) {
       const label = o.type === 'limit' ? 'Limit order' : typeLabel(o.type)
-      raiseAlert('fill', `${o.coin} ${label.toLowerCase()} filled`, `${label} filled: ${describeFill(ev.fill)}`)
+      // A resting limit fills only as much as traded through its price, so it can fill in parts.
+      const filled = o.status === 'open' ? 'partly filled' : 'filled'
+      raiseAlert('fill', `${o.coin} ${label.toLowerCase()} ${filled}`, `${label} ${filled}: ${describeFill(ev.fill)}`)
     }
   }
   if (ev.type === 'liquidation' && ev.liquidation) {

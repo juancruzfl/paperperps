@@ -156,6 +156,7 @@ type Fill struct {
 	ClosedPnl     decimal.Decimal `json:"closedPnl"`
 	IsLiquidation bool            `json:"isLiquidation"`
 	CreatedAt     time.Time       `json:"createdAt"`
+	Note          string          `json:"note"` // the trader's private journal note; "" if none
 }
 
 type FundingPayment struct {
@@ -279,15 +280,17 @@ func (s *Store) OrderHistory(ctx context.Context, id uuid.UUID, limit int) ([]Or
 // Fills returns the account's most recent fills.
 func (s *Store) Fills(ctx context.Context, id uuid.UUID, limit int) ([]Fill, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, order_id, coin, side, px, sz, fee, liquidity, closed_pnl, is_liquidation, created_at
-		FROM fills WHERE account_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`, id, limit)
+		SELECT f.id, f.order_id, f.coin, f.side, f.px, f.sz, f.fee, f.liquidity, f.closed_pnl, f.is_liquidation,
+			f.created_at, coalesce(n.note, '')
+		FROM fills f LEFT JOIN fill_notes n ON n.fill_id = f.id
+		WHERE f.account_id = $1 ORDER BY f.created_at DESC, f.id DESC LIMIT $2`, id, limit)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Fill, error) {
 		var f Fill
 		err := r.Scan(&f.ID, &f.OrderID, &f.Coin, &f.Side, &f.Px, &f.Sz, &f.Fee, &f.Liquidity,
-			&f.ClosedPnl, &f.IsLiquidation, &f.CreatedAt)
+			&f.ClosedPnl, &f.IsLiquidation, &f.CreatedAt, &f.Note)
 		return f, err
 	})
 }

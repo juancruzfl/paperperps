@@ -177,6 +177,10 @@ export function PrivacyPage() {
           notifications for fills and liquidations. Notifications are shown by your browser; nothing is sent to us or anyone
           else.
         </li>
+        <li>
+          <code>paperperps.priceAlerts</code>: the price alerts you set (coin and price). They’re checked in your browser
+          and never sent to us.
+        </li>
       </ul>
       <p>Clearing your browser’s site data removes them, and with the key gone you lose access to the account.</p>
 
@@ -190,6 +194,11 @@ export function PrivacyPage() {
         <li>
           <strong>Your simulated trading:</strong> orders, fills, positions, balances, fees, funding payments,
           liquidations, resets, and snapshots of your account value over time.
+        </li>
+        <li>
+          <strong>Your trade journal:</strong> any notes you write on your trades. They’re private: only you can see
+          them, and they’re never shown on your profile or the leaderboard. Please don’t put personal information in
+          them.
         </li>
         <li>
           <strong>Moderation records:</strong> if we act on an account under our <a href="/terms">Terms</a> (for
@@ -209,8 +218,10 @@ export function PrivacyPage() {
       </p>
       <p>
         While you’re shown on the leaderboard, you also have a public profile page (/u/your-handle) showing your profit and
-        loss over time, win rate, best trade, trading volume, the date you started, and your open positions (coin, size,
-        entry price and leverage). It never shows your balance, orders or recovery key.
+        loss over time, win rate, best trade, trading volume, the date you started, statistics about your closed
+        positions (such as average win and loss, holding time, and results by coin and by long or short), and your open
+        positions (coin, size, entry price and leverage). It never shows your balance, orders, journal notes or recovery
+        key.
       </p>
       <p>
         Turning off “Show me on the leaderboard” on the leaderboard page hides both, at any time. Share images you create
@@ -262,7 +273,8 @@ export function PrivacyPage() {
           we store about it, immediately, except any moderation records described above.
         </li>
         <li>
-          <strong>Access:</strong> your positions, orders, trade, order and funding history are all visible in the app.
+          <strong>Access:</strong> your positions, orders, trade, order and funding history and journal notes are all
+          visible in the app.
         </li>
         <li>
           <strong>Correct:</strong> change your handle on the leaderboard page.

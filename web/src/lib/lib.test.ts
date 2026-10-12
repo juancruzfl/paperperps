@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { computeDepth } from './book'
 import { applyTrade, toBar } from './candles'
-import { change24h, formatPct, formatUsd, fundingCountdown, pxDecimals } from './format'
+import { change24h, formatDuration, formatPct, formatUsd, fundingCountdown, pxDecimals } from './format'
 import type { Trade } from './types'
 
 describe('pxDecimals', () => {
@@ -22,6 +22,14 @@ describe('pxDecimals', () => {
 })
 
 describe('formatting', () => {
+  it('formats durations', () => {
+    expect(formatDuration(45)).toBe('45s')
+    expect(formatDuration(12 * 60 + 5)).toBe('12m')
+    expect(formatDuration(3 * 3600 + 12 * 60)).toBe('3h 12m')
+    expect(formatDuration(2 * 86400)).toBe('2d')
+    expect(formatDuration(2 * 86400 + 4 * 3600 + 59)).toBe('2d 4h')
+  })
+
   it('formats signed percentages', () => {
     expect(formatPct(0.0123)).toBe('+1.23%')
     expect(formatPct(-0.0005739396, 4)).toBe('-0.0574%')
