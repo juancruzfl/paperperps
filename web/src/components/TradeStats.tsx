@@ -5,7 +5,9 @@ const tone = (n: number) => (n > 0 ? 'up' : n < 0 ? 'down' : '')
 const rate = (s: SideStats) => (s.trips > 0 ? formatPct(s.wins / s.trips, 0).replace('+', '') : '—')
 
 /** How a trader's closed positions went: averages, streaks, and splits by side and coin. */
-export function TradeStats({ perf }: { perf: TradePerformance }) {
+export function TradeStats({ perf }: { perf: TradePerformance | undefined }) {
+  // An older server doesn't send stats; say so instead of breaking the page.
+  if (!perf) return <div className="panel-empty">Trade stats aren’t available right now. Try again in a minute.</div>
   if (perf.roundTrips === 0) {
     return <div className="panel-empty">No closed positions yet. Stats appear once a position is closed.</div>
   }

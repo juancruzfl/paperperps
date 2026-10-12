@@ -183,7 +183,7 @@ export type TraderProfile = {
   wins: number
   bestTrade: string
   volume: string
-  performance: TradePerformance
+  performance?: TradePerformance // missing from servers older than the stats
   equity: { t: string; cumulativePnl: string }[]
   positions: { coin: string; size: string; entryPx: string; leverage: number; marginMode: 'cross' | 'isolated' }[]
 }

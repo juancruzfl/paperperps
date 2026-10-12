@@ -5,6 +5,7 @@ import { formatUsd } from '../lib/format'
 import { isLimitPriced, typeLabel } from '../lib/orders'
 import { toast } from '../lib/toasts'
 import type { Order } from '../lib/types'
+import { PencilIcon } from './Icons'
 
 const errorText = (err: unknown) => (err instanceof ApiError ? err.message : 'Could not reach the server')
 
@@ -137,7 +138,7 @@ export function PositionTPSLControl(props: {
   return (
     <>
       <button type="button" className="link tpsl-link" onClick={open} title="Set take profit / stop loss">
-        {fmt(takeProfit)} / {fmt(stopLoss)} <span className="muted">✎</span>
+        {fmt(takeProfit)} / {fmt(stopLoss)} <PencilIcon size={12} className="icon muted" />
       </button>
       <dialog ref={dialogRef} className="dialog" aria-labelledby={`tpsl-${coin}`}>
         <h3 id={`tpsl-${coin}`}>{coin} take profit / stop loss</h3>

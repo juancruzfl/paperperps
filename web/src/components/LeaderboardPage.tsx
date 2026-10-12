@@ -118,7 +118,9 @@ function Row({ entry, unranked }: { entry: LeaderboardEntry; unranked?: boolean 
   const pnl = Number(entry.pnl)
   return (
     <tr className={entry.you ? 'you' : undefined}>
-      <td className="num">{unranked ? '—' : entry.rank <= 3 ? ['🥇', '🥈', '🥉'][entry.rank - 1] : entry.rank}</td>
+      <td className="num">
+        {unranked ? '—' : entry.rank <= 3 ? <span className={`podium podium-${entry.rank}`}>{entry.rank}</span> : entry.rank}
+      </td>
       <td>
         <a className="trader-link" href={traderPath(entry.handle)}>
           {entry.handle}

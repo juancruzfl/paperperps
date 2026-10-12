@@ -3,6 +3,7 @@ import { api, ApiError } from '../lib/api'
 import { refreshAccount, useAccount } from '../lib/account'
 import { formatUsd } from '../lib/format'
 import { toast } from '../lib/toasts'
+import { PencilIcon } from './Icons'
 
 type Mode = 'cross' | 'isolated'
 
@@ -102,7 +103,7 @@ export function IsolatedMarginControl({ coin, margin, available }: { coin: strin
   return (
     <>
       <button type="button" className="icon-btn" onClick={open} aria-label={`Adjust ${coin} isolated margin`} title="Adjust margin">
-        ✎
+        <PencilIcon size={12} />
       </button>
       <dialog ref={dialogRef} className="dialog" aria-labelledby={`iso-${coin}`}>
         <h3 id={`iso-${coin}`}>{coin} isolated margin</h3>

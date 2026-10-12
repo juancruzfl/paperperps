@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { change24h, formatNumber, formatPct, formatUsdCompact, pxDecimals } from '../lib/format'
 import type { Ticker } from '../lib/types'
+import { ChevronDownIcon } from './Icons'
 
 type Props = {
   coin: string
@@ -54,9 +55,7 @@ export function MarketSelector({ coin, tickers, onSelect }: Props) {
       >
         <span className="selector-coin">{coin}-USD</span>
         {current && <span className="badge">{current.maxLeverage}x</span>}
-        <span className="chevron" aria-hidden>
-          ▾
-        </span>
+        <ChevronDownIcon size={14} className="icon chevron" />
       </button>
 
       {open && (

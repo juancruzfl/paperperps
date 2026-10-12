@@ -3,6 +3,7 @@ import { formatNumber, pxDecimals } from '../lib/format'
 import { addPriceAlert, MAX_PRICE_ALERTS, removePriceAlert, usePriceAlerts } from '../lib/priceAlerts'
 import { toast } from '../lib/toasts'
 import type { Ticker } from '../lib/types'
+import { ArrowDownIcon, ArrowUpIcon, BellIcon, CloseIcon } from './Icons'
 
 /** "Alerts" button in the stats bar, with a dialog to add and remove price alerts. */
 export function PriceAlertControl({ ticker }: { ticker: Ticker }) {
@@ -36,7 +37,7 @@ export function PriceAlertControl({ ticker }: { ticker: Ticker }) {
   return (
     <>
       <button type="button" className="small-btn alerts-btn" onClick={open} aria-label={`Price alerts for ${ticker.coin}`}>
-        <span aria-hidden>🔔</span> Alerts{forCoin > 0 && <span className="alerts-count">{forCoin}</span>}
+        <BellIcon size={14} /> Alerts{forCoin > 0 && <span className="alerts-count">{forCoin}</span>}
       </button>
       <dialog ref={dialogRef} className="dialog alerts-dialog" aria-labelledby="price-alerts-title">
         <h3 id="price-alerts-title">Price alerts</h3>
@@ -66,11 +67,14 @@ export function PriceAlertControl({ ticker }: { ticker: Ticker }) {
             {sorted.map((a) => (
               <li key={a.id}>
                 <span>
-                  <strong>{a.coin}</strong> <span className={a.above ? 'up' : 'down'}>{a.above ? '↑ rises' : '↓ falls'} to</span>{' '}
+                  <strong>{a.coin}</strong> <span className={`alert-dir ${a.above ? 'up' : 'down'}`}>
+                    {a.above ? <ArrowUpIcon size={12} /> : <ArrowDownIcon size={12} />}
+                    {a.above ? 'rises' : 'falls'} to
+                  </span>{' '}
                   <span className="mono">{a.px.toLocaleString('en-US', { maximumFractionDigits: 8 })}</span>
                 </span>
                 <button type="button" className="icon-btn" onClick={() => removePriceAlert(a.id)} aria-label={`Remove ${a.coin} alert at ${a.px}`}>
-                  ✕
+                  <CloseIcon size={14} />
                 </button>
               </li>
             ))}
