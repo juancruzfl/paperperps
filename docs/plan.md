@@ -207,6 +207,9 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
     testnet, so they were skipped. Since the default is now mainnet, they could be added.
     Keeping every coin valid on both networks means switching networks never strands an
     open position.
+  - *Added 2026-10-13:* **ZEC** joined the default list (mainnet: 10× max, `szDecimals` 2).
+    It's still delisted on testnet, so with `HL_NETWORK=testnet` it's disabled at startup
+    with a warning. Close any ZEC positions before switching a deployment to testnet.
 - Each market uses its `szDecimals`, tick/price rules and `maxLeverage` from the **data
   network's** `meta`. The two networks don't always agree: on 2026-10-09 SOL was 20× on
   mainnet but 10× on testnet, and NEAR was 10× on mainnet but 20× on testnet. Leverage
