@@ -17,8 +17,8 @@ func TestLoadDefaults(t *testing.T) {
 	if c.HLNetwork != NetworkMainnet {
 		t.Errorf("HLNetwork = %q, want mainnet", c.HLNetwork)
 	}
-	if len(c.Markets) != 20 {
-		t.Errorf("len(Markets) = %d, want 20", len(c.Markets))
+	if len(c.Markets) != 21 {
+		t.Errorf("len(Markets) = %d, want 21", len(c.Markets))
 	}
 	if c.ResetCooldown != 24*time.Hour {
 		t.Errorf("ResetCooldown = %v, want 24h", c.ResetCooldown)

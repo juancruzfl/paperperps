@@ -17,8 +17,8 @@ import (
 )
 
 // DefaultMarkets is the top 20 perps by mainnet 24h volume that are also listed on
-// testnet, as of 2026-10-09. See docs/plan.md §4.1.
-const DefaultMarkets = "BTC,ETH,HYPE,NEAR,SOL,PUMP,VVV,WLD,LIT,SUI,ZRO,DOGE,MET,PONS,ONDO,ADA,TAO,FARTCOIN,XPL,XMR"
+// testnet, as of 2026-10-09, plus ZEC (mainnet only). See docs/plan.md §4.1.
+const DefaultMarkets = "BTC,ETH,HYPE,NEAR,SOL,PUMP,VVV,WLD,LIT,SUI,ZRO,DOGE,MET,PONS,ONDO,ADA,TAO,FARTCOIN,XPL,XMR,ZEC"
 
 const (
 	NetworkTestnet = "testnet"
