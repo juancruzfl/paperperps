@@ -133,6 +133,7 @@ function Row({ entry, unranked }: { entry: LeaderboardEntry; unranked?: boolean 
           {entry.handle}
         </a>
         {entry.you && <span className="badge">you</span>}
+        {entry.degen && <span className="badge degen" title="Has traded above a market’s real leverage cap (degen mode)">degen</span>}
       </td>
       <td className={`num ${pnl > 0 ? 'up' : pnl < 0 ? 'down' : ''}`}>{formatUsd(pnl, { signed: true })}</td>
       <td className="num hide-sm">{formatUsdCompact(Number(entry.volume))}</td>

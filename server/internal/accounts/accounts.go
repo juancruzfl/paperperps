@@ -187,6 +187,10 @@ type Account struct {
 	// Suspension is set while a moderator has suspended the account: it can close
 	// positions but not open new ones.
 	Suspension *Suspension `json:"suspension"`
+	// DegenMode allows leverage above Hyperliquid's cap, up to engine.MaxDegenLeverage.
+	DegenMode bool `json:"degenMode"`
+	// DegenAt is when a fill first grew a position above the cap; nil if never.
+	DegenAt *time.Time `json:"degenAt"`
 
 	RunID           uuid.UUID       `json:"runId"`
 	StartingBalance decimal.Decimal `json:"startingBalance"` // of the current run
@@ -218,6 +222,7 @@ func Load(ctx context.Context, q Querier, id uuid.UUID) (Account, error) {
 	err := q.QueryRow(ctx, `
 		SELECT a.handle, a.created_at, a.leaderboard_opt_in, a.last_reset_at,
 			a.leaderboard_banned, a.suspended_at, coalesce(a.suspend_reason, ''),
+			a.degen_mode, a.degen_at,
 			r.id, r.starting_balance, r.balance,
 			coalesce((SELECT sum(p.balance + p.locked_upnl - p.starting_balance) FROM runs p
 				WHERE p.account_id = a.id AND p.id <> r.id), 0),
@@ -225,6 +230,7 @@ func Load(ctx context.Context, q Querier, id uuid.UUID) (Account, error) {
 		FROM accounts a JOIN runs r ON r.id = a.current_run_id
 		WHERE a.id = $1`, id).Scan(&a.Handle, &a.CreatedAt, &a.LeaderboardOptIn, &a.LastResetAt,
 		&a.LeaderboardHidden, &suspendedAt, &suspendReason,
+		&a.DegenMode, &a.DegenAt,
 		&a.RunID, &a.StartingBalance, &a.Balance, &a.PriorPnl, &a.Resets)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Account{}, ErrNotFound

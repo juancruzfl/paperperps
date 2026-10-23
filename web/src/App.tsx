@@ -161,7 +161,14 @@ function App() {
 
         <section className="panel chart-panel" aria-label="Chart">
           {ticker ? (
-            <Chart coin={coin} szDecimals={ticker.szDecimals} refPx={Number(ticker.markPx)} lines={lines} />
+            <Chart
+              coin={coin}
+              szDecimals={ticker.szDecimals}
+              refPx={Number(ticker.markPx)}
+              lines={lines}
+              degen={me?.degenMode ?? false}
+              aboveCap={(me?.positions.find((p) => p.coin === coin)?.leverage ?? 0) > ticker.maxLeverage}
+            />
           ) : (
             <div className="panel-empty">Loading chart…</div>
           )}

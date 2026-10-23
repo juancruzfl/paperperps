@@ -102,6 +102,8 @@ export const api = {
       secret,
       body: JSON.stringify({ amount }),
     }),
+  setDegenMode: (secret: string, enabled: boolean) =>
+    request<void>('/api/me/degen-mode', { method: 'PUT', secret, body: JSON.stringify({ enabled }) }),
   setLeverage: (secret: string, coin: string, leverage: number) =>
     request<void>(`/api/me/leverage/${encodeURIComponent(coin)}`, {
       method: 'PUT',

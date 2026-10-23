@@ -153,6 +153,8 @@ type account struct {
 	dirty           bool // changed since the last equity snapshot
 	// suspended accounts may only place reduce-only orders (SetSuspended).
 	suspended bool
+	// degenMode lifts the leverage cap to MaxDegenLeverage (SetDegenMode).
+	degenMode bool
 }
 
 type event struct {
@@ -337,12 +339,16 @@ func (e *Engine) setLeverage(ctx context.Context, accountID uuid.UUID, coin stri
 	if !ok {
 		return reject("unknown_market", "%s is not a listed market", coin)
 	}
-	if leverage < 1 || leverage > ticker.MaxLeverage {
-		return reject("invalid_leverage", "leverage must be between 1 and %d", ticker.MaxLeverage)
-	}
 	a, err := e.account(ctx, accountID)
 	if err != nil {
 		return err
+	}
+	if limit := a.maxLeverage(ticker); leverage < 1 || leverage > limit {
+		if !a.degenMode && leverage > limit {
+			return reject("invalid_leverage", "leverage must be between 1 and %d; turn on degen mode for up to %dx",
+				limit, MaxDegenLeverage)
+		}
+		return reject("invalid_leverage", "leverage must be between 1 and %d", limit)
 	}
 	pos := a.position(coin, e.defaultLeverage(ticker))
 	if pos.isolated && !pos.size.IsZero() {
@@ -371,6 +377,8 @@ func (e *Engine) setLeverage(ctx context.Context, accountID uuid.UUID, coin stri
 func (e *Engine) newFill(pos *position, orderID *uuid.UUID, coin string, buy bool,
 	sz, px, fee decimal.Decimal, liquidity string, now time.Time) fillRecord {
 	res := ApplyFill(pos.size, pos.entryPx, buy, sz, px)
+	grows := res.NewSize.Abs().GreaterThan(pos.size.Abs()) || res.NewSize.Sign()*pos.size.Sign() < 0
+	t, listed := e.md.Ticker(coin)
 	side := SideSell
 	if buy {
 		side = SideBuy
@@ -394,6 +402,7 @@ func (e *Engine) newFill(pos *position, orderID *uuid.UUID, coin string, buy boo
 		leverage:     pos.leverage,
 		isolated:     pos.isolated,
 		balanceDelta: res.ClosedPnl.Sub(fee),
+		aboveCap:     grows && listed && pos.leverage > t.MaxLeverage,
 	}
 }
 
@@ -429,6 +438,7 @@ func (e *Engine) account(ctx context.Context, id uuid.UUID) (*account, error) {
 		priorPnl:        st.PriorPnl,
 		lastResetAt:     st.LastResetAt,
 		suspended:       st.Suspension != nil,
+		degenMode:       st.DegenMode,
 	}
 	for _, p := range st.Positions {
 		a.positions[p.Coin] = &position{
@@ -441,6 +451,14 @@ func (e *Engine) account(ctx context.Context, id uuid.UUID) (*account, error) {
 	}
 	e.accounts[id] = a
 	return a, nil
+}
+
+// maxLeverage is the highest leverage the account may set on a market.
+func (a *account) maxLeverage(t market.Ticker) int {
+	if a.degenMode {
+		return max(MaxDegenLeverage, t.MaxLeverage)
+	}
+	return t.MaxLeverage
 }
 
 // position returns the account's position on coin, creating a flat one if needed.
@@ -560,7 +578,8 @@ func markInto(md MarketData, coin string, c *CoinState) {
 		if t.MarkPx.IsPositive() {
 			c.MarkPx = t.MarkPx
 		}
-		c.MaintenanceRate = MaintenanceRate(t.MaxLeverage)
+		// Above the cap (degen mode) the rule scales with the position's own leverage.
+		c.MaintenanceRate = MaintenanceRate(max(t.MaxLeverage, c.Leverage))
 	}
 }
 
