@@ -8,6 +8,7 @@ import {
   pxDecimals,
 } from '../lib/format'
 import type { Ticker } from '../lib/types'
+import { MarketSelector } from './MarketSelector'
 import { PriceAlertControl } from './PriceAlerts'
 
 function useNow(intervalMs: number) {
@@ -19,9 +20,26 @@ function useNow(intervalMs: number) {
   return now
 }
 
-export function StatsBar({ ticker }: { ticker: Ticker | undefined }) {
+type Props = {
+  coin: string
+  tickers: Ticker[]
+  onSelect: (coin: string) => void
+}
+
+/** The market picker, then the selected market's prices and funding. */
+export function StatsBar({ coin, tickers, onSelect }: Props) {
+  const ticker = tickers.find((t) => t.coin === coin)
+  return (
+    <div className="stats-bar">
+      <MarketSelector coin={coin} tickers={tickers} onSelect={onSelect} />
+      {/* Only the stats scroll sideways; the selector's dropdown would be clipped inside it. */}
+      <div className="stats-scroll">{ticker ? <Stats ticker={ticker} /> : <span className="muted">Loading market…</span>}</div>
+    </div>
+  )
+}
+
+function Stats({ ticker }: { ticker: Ticker }) {
   const now = useNow(1000)
-  if (!ticker) return <div className="stats-bar muted">Loading market…</div>
 
   const dec = pxDecimals(Number(ticker.markPx), ticker.szDecimals)
   const ch = change24h(ticker.markPx, ticker.prevDayPx)
@@ -29,7 +47,7 @@ export function StatsBar({ ticker }: { ticker: Ticker | undefined }) {
   const oiUsd = Number(ticker.openInterest) * Number(ticker.markPx)
 
   return (
-    <div className="stats-bar">
+    <>
       <Stat label="Mark" value={formatNumber(ticker.markPx, dec)} big />
       <Stat label="Oracle" value={formatNumber(ticker.oraclePx, dec)} />
       <Stat
@@ -54,7 +72,7 @@ export function StatsBar({ ticker }: { ticker: Ticker | undefined }) {
         </span>
       )}
       <PriceAlertControl ticker={ticker} />
-    </div>
+    </>
   )
 }
 

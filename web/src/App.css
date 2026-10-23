@@ -199,10 +199,29 @@
 .stats-bar {
   display: flex;
   align-items: center;
-  gap: 28px;
-  padding: 10px 16px;
-  overflow-x: auto;
+  gap: 20px;
+  padding: 8px 16px 8px 8px;
   border-bottom: 1px solid var(--border);
+}
+
+/* A hairline between the market picker and its numbers. */
+.stats-bar > .selector {
+  flex: none;
+  padding-right: 20px;
+  border-right: 1px solid var(--border);
+}
+
+.stats-bar .selector-coin {
+  font-size: 17px;
+}
+
+.stats-scroll {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 28px;
+  min-width: 0;
+  overflow-x: auto;
   white-space: nowrap;
   scrollbar-width: none;
 }

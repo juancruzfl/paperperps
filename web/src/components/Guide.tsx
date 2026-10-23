@@ -42,7 +42,7 @@ const STEPS: Step[] = [
     ),
   },
   {
-    target: '.stats-bar',
+    target: '.stats-scroll',
     title: 'The mark price',
     body: () => (
       <p>
