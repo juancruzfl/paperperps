@@ -3,7 +3,10 @@ import {
   ColorType,
   createChart,
   HistogramSeries,
+  LastPriceAnimationMode,
+  LineSeries,
   LineStyle,
+  LineType,
   TickMarkType,
   type IChartApi,
   type ISeriesApi,
@@ -19,7 +22,19 @@ import type { Candle, Trade } from '../lib/types'
 
 const UP = '#3ddc97'
 const DOWN = '#ff5c7a'
+const WARN = '#f5b942'
 const INTERVAL_KEY = 'paperperps.chartInterval'
+
+// Degen mode adds a tick view: every trade is one step along the line, so it moves as fast
+// as the market does. Ticks aren't evenly spaced in time, so the time axis counts trades and
+// the labels look up each trade's real time.
+const LIVE = 'Tick'
+const LIVE_POINTS = 1000
+const SWIM_MS = 200 // the dot glides to each new trade price, short enough to keep up with bursts
+
+const easeOut = (x: number) => 1 - (1 - x) ** 3
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+type View = Interval | typeof LIVE
 
 function loadInterval(): Interval {
   try {
@@ -47,6 +62,7 @@ const crosshairFmt = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
   hour12: false,
 })
+const secondsFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 const hourFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
 const dayFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
 const monthFmt = new Intl.DateTimeFormat(undefined, { month: 'short' })
@@ -80,17 +96,31 @@ type Props = {
   szDecimals: number
   refPx: number // any recent price, to pick the axis precision
   lines?: PriceLine[] // position, liquidation and order prices to mark
+  degen?: boolean // degen mode: offer the 1s mark-price view
+  aboveCap?: boolean // this coin's leverage is above its real cap: open the 1s view
 }
 
 const LINE_STYLE = { solid: LineStyle.Solid, dashed: LineStyle.Dashed, dotted: LineStyle.Dotted }
 
-export function Chart({ coin, szDecimals, refPx, lines = [] }: Props) {
+export function Chart({ coin, szDecimals, refPx, lines = [], degen = false, aboveCap = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candlesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeRef = useRef<ISeriesApi<'Histogram'> | null>(null)
-  const [interval, setChartInterval] = useState<Interval>(loadInterval)
+  const markRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const tickTimes = useRef(new Map<number, number>()) // tick number -> trade time, ms
+  const [saved, setSaved] = useState<Interval>(loadInterval)
+  const [live, setLive] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [waiting, setWaiting] = useState(false)
+  const view: View = live && degen ? LIVE : saved
+
+  // Going above the cap opens the 1s view, once per crossing; picking another view sticks.
+  const [prevAboveCap, setPrevAboveCap] = useState(aboveCap)
+  if (aboveCap !== prevAboveCap) {
+    setPrevAboveCap(aboveCap)
+    if (aboveCap) setLive(true)
+  }
 
   // Create the chart once.
   useEffect(() => {
@@ -131,19 +161,30 @@ export function Chart({ coin, szDecimals, refPx, lines = [] }: Props) {
       priceLineVisible: false,
     })
     volumeRef.current.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+    // A glowing dot (the last price animation) swims along the price, trailing a faint curve.
+    markRef.current = chart.addSeries(LineSeries, {
+      color: 'rgba(245, 185, 66, 0.45)',
+      lineWidth: 2,
+      lineType: LineType.Curved,
+      lastPriceAnimation: LastPriceAnimationMode.Continuous,
+      crosshairMarkerBackgroundColor: WARN,
+      priceLineColor: WARN,
+      visible: false,
+    })
     chartRef.current = chart
     return () => {
       chart.remove()
       chartRef.current = null
       candlesRef.current = null
       volumeRef.current = null
+      markRef.current = null
     }
   }, [])
 
   // Price lines are redrawn only when they actually change (they're recomputed every tick).
   const linesKey = JSON.stringify(lines)
   useEffect(() => {
-    const series = candlesRef.current
+    const series = view === LIVE ? markRef.current : candlesRef.current
     if (!series) return
     const drawn = (JSON.parse(linesKey) as PriceLine[]).map((l) =>
       series.createPriceLine({
@@ -156,21 +197,112 @@ export function Chart({ coin, szDecimals, refPx, lines = [] }: Props) {
       }),
     )
     return () => drawn.forEach((p) => series.removePriceLine(p))
-  }, [linesKey])
+  }, [linesKey, view])
 
   // Axis precision follows the asset's price.
   const decimals = pxDecimals(refPx, szDecimals)
   useEffect(() => {
-    candlesRef.current?.applyOptions({
-      priceFormat: { type: 'price', precision: decimals, minMove: 10 ** -decimals },
-    })
+    const priceFormat = { type: 'price', precision: decimals, minMove: 10 ** -decimals } as const
+    candlesRef.current?.applyOptions({ priceFormat })
+    markRef.current?.applyOptions({ priceFormat })
   }, [decimals])
+
+  // Switch series and time labels between candles and the tick line.
+  useEffect(() => {
+    const isLive = view === LIVE
+    const tickTime = (t: Time) => {
+      const at = tickTimes.current.get(t as number)
+      return at === undefined ? '' : secondsFmt.format(at)
+    }
+    candlesRef.current?.applyOptions({ visible: !isLive })
+    volumeRef.current?.applyOptions({ visible: !isLive })
+    markRef.current?.applyOptions({ visible: isLive })
+    chartRef.current?.applyOptions({
+      timeScale: { tickMarkFormatter: isLive ? tickTime : tickFormatter },
+      localization: { timeFormatter: isLive ? tickTime : (t: Time) => crosshairFmt.format(ms(t)) },
+    })
+  }, [view])
+
+  // Tick view: one point per trade from the live trade feed, starting from the recent trades
+  // the feed sends on subscribe. Each new point starts where the dot is and eases to the new
+  // price, so the dot swims rather than jumps.
+  useEffect(() => {
+    const series = markRef.current
+    if (view !== LIVE || !series) return
+    const points: { time: UTCTimestamp; value: number }[] = []
+    const times = tickTimes.current
+    const seen = new Set<number>()
+    let seq = 0
+    let frame = 0
+    let target = 0 // where the dot is headed
+    series.setData([])
+    setError(null)
+    setWaiting(true)
+
+    const swim = (head: { time: UTCTimestamp; value: number }, from: number, to: number) => {
+      cancelAnimationFrame(frame)
+      target = to
+      if (reducedMotion()) {
+        head.value = to
+        series.update(head)
+        return
+      }
+      const start = performance.now()
+      const step = (now: number) => {
+        const k = Math.min(1, (now - start) / SWIM_MS)
+        head.value = from + (to - from) * easeOut(k)
+        series.update(head)
+        if (k < 1) frame = requestAnimationFrame(step)
+      }
+      frame = requestAnimationFrame(step)
+    }
+
+    const unsubscribe = socket.subscribe(`trades:${coin}`, (msg: ServerMessage) => {
+      // Batches arrive newest first; ticks go oldest first. Reconnects resend recent trades.
+      const fresh = ((msg.data as Trade[] | null) ?? [])
+        .filter((t) => !seen.has(t.tid) && Number(t.px) > 0)
+        .sort((a, b) => a.time - b.time || a.tid - b.tid)
+      if (fresh.length === 0) return
+      // Settle the dot where it was headed before adding more.
+      cancelAnimationFrame(frame)
+      const last = points.at(-1)
+      if (last) {
+        last.value = target
+        series.update(last)
+      }
+      const from = last ? target : Number(fresh[0].px)
+      for (const t of fresh) {
+        seen.add(t.tid)
+        const time = ++seq as UTCTimestamp
+        times.set(time, t.time)
+        points.push({ time, value: Number(t.px) })
+      }
+      const head = points[points.length - 1]
+      const to = head.value
+      head.value = from
+      if (points.length > LIVE_POINTS) {
+        for (const p of points.splice(0, points.length - LIVE_POINTS)) times.delete(p.time)
+      }
+      // A batch, or the first snapshot, is redrawn whole; the dot then swims to its last price.
+      if (msg.snapshot || fresh.length > 1 || points.length === 1) series.setData(points)
+      else series.update(head)
+      swim(head, from, to)
+      if (points.length >= 2) setWaiting(false)
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+      unsubscribe()
+      times.clear()
+      markRef.current?.setData([]) // null once the chart is gone (unmount cleans that up first)
+    }
+  }, [coin, view])
 
   // Load history, then extend the last bar from live trades.
   useEffect(() => {
     const candles = candlesRef.current
     const volume = volumeRef.current
-    if (!candles || !volume) return
+    if (view === LIVE || !candles || !volume) return
+    const interval = view
     const intervalMs = INTERVALS[interval]
     const controller = new AbortController()
     let last: Bar | null = null
@@ -224,31 +356,40 @@ export function Chart({ coin, szDecimals, refPx, lines = [] }: Props) {
       controller.abort()
       unsubscribe()
     }
-  }, [coin, interval])
+  }, [coin, view])
 
-  const pick = (i: Interval) => {
-    setChartInterval(i)
-    saveInterval(i)
+  const pick = (v: View) => {
+    if (v === LIVE) {
+      setLive(true)
+      return
+    }
+    setLive(false)
+    setSaved(v)
+    saveInterval(v)
   }
+  const views: View[] = degen ? [LIVE, ...(Object.keys(INTERVALS) as Interval[])] : (Object.keys(INTERVALS) as Interval[])
 
   return (
     <div className="chart">
       <div className="chart-toolbar" role="toolbar" aria-label="Chart interval">
-        {(Object.keys(INTERVALS) as Interval[]).map((i) => (
+        {views.map((v) => (
           <button
-            key={i}
+            key={v}
             type="button"
-            className={i === interval ? 'active' : undefined}
-            aria-pressed={i === interval}
-            onClick={() => pick(i)}
+            className={[v === view ? 'active' : '', v === LIVE ? 'live' : ''].join(' ').trim() || undefined}
+            aria-pressed={v === view}
+            title={v === LIVE ? 'Every trade as it happens (degen mode). Liquidations use the mark price' : undefined}
+            onClick={() => pick(v)}
           >
-            {i}
+            {v}
           </button>
         ))}
+        {view === LIVE && <span className="chart-live-note">Every trade · live</span>}
       </div>
       {/* lightweight-charts owns this element's children, so React must not render into it. */}
       <div className="chart-canvas" ref={containerRef} />
       {error && <div className="chart-error">{error}</div>}
+      {view === LIVE && waiting && <div className="chart-waiting muted small">Waiting for trades…</div>}
     </div>
   )
 }

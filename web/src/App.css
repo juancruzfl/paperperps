@@ -2312,6 +2312,10 @@ th[title] {
   .guide-spot {
     transition: none;
   }
+
+  .chart-live-note::before {
+    animation: none;
+  }
 }
 
 /* Top three on the leaderboard: gold, silver and bronze numbers. */
@@ -2561,4 +2565,46 @@ th[title] {
     grid-column: 1 / -1;
     justify-content: space-between;
   }
+}
+
+/* Degen mode's 1s mark-price view. */
+.chart-toolbar button.live {
+  color: var(--warn);
+}
+
+.chart-toolbar button.live.active {
+  background: rgba(245, 185, 66, 0.14);
+}
+
+.chart-live-note {
+  align-self: center;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--warn);
+}
+
+.chart-live-note::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--warn);
+  animation: live-pulse 1s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.chart-waiting {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
