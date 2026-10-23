@@ -20,9 +20,9 @@ function coinFromPath(): string {
   return m ? decodeURIComponent(m[1]) : DEFAULT_COIN
 }
 
-export type Page = 'trade' | 'leaderboard' | 'about' | 'terms' | 'privacy' | 'trader'
+export type Page = 'trade' | 'portfolio' | 'leaderboard' | 'about' | 'terms' | 'privacy' | 'trader'
 
-const PAGES: Page[] = ['leaderboard', 'about', 'terms', 'privacy']
+const PAGES: Page[] = ['portfolio', 'leaderboard', 'about', 'terms', 'privacy']
 
 function pageFromPath(): Page {
   if (location.pathname.startsWith('/u/')) return 'trader'

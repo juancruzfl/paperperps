@@ -16,7 +16,7 @@ import { cardLink, closedTradeCard } from '../lib/share'
 import type { Ticker } from '../lib/types'
 
 const TABS = ['Positions', 'Open Orders', 'Trade History', 'Order History', 'Funding History', 'Performance'] as const
-type Tab = (typeof TABS)[number]
+export type Tab = (typeof TABS)[number]
 
 const dateTime = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -30,7 +30,13 @@ const when = (iso: string) => dateTime.format(new Date(iso))
 const usd = (n: number, signed = false) => formatUsd(n, { signed })
 const tone = (n: number) => (n > 0 ? 'up' : n < 0 ? 'down' : '')
 
-export function AccountPanel({ onSelectCoin }: { onSelectCoin: (coin: string) => void }) {
+export function AccountPanel({
+  onSelectCoin,
+  tabs = TABS,
+}: {
+  onSelectCoin: (coin: string) => void
+  tabs?: readonly Tab[]
+}) {
   const [tab, setTab] = useState<Tab>('Positions')
   const me = useAccount((s) => s.me)
   const openCount = me?.openOrders.length ?? 0
@@ -39,7 +45,7 @@ export function AccountPanel({ onSelectCoin }: { onSelectCoin: (coin: string) =>
   return (
     <section className="panel account-panel" aria-label="Account">
       <div className="tabs" role="tablist">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
             {t}
             {t === 'Positions' && posCount > 0 && ` (${posCount})`}

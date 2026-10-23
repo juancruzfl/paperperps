@@ -23,7 +23,10 @@ import './App.css'
 const AboutPage = lazy(() => import('./components/AboutPage').then((m) => ({ default: m.AboutPage })))
 const TermsPage = lazy(() => import('./components/LegalPages').then((m) => ({ default: m.TermsPage })))
 const PrivacyPage = lazy(() => import('./components/LegalPages').then((m) => ({ default: m.PrivacyPage })))
+const PortfolioPage = lazy(() => import('./components/PortfolioPage').then((m) => ({ default: m.PortfolioPage })))
 const TraderPage = lazy(() => import('./components/TraderPage').then((m) => ({ default: m.TraderPage })))
+
+const NAV_LABELS = { trade: 'Trade', portfolio: 'Portfolio', leaderboard: 'Leaderboard' }
 
 type BookTab = 'book' | 'trades'
 type MobileView = 'chart' | BookTab
@@ -79,7 +82,7 @@ function App() {
   useEffect(() => {
     if (page === 'trader') return // TraderPage titles itself with the handle
     if (page !== 'trade') {
-      const titles = { leaderboard: 'Leaderboard', about: 'How it works', terms: 'Terms of Service', privacy: 'Privacy Policy' }
+      const titles = { portfolio: 'Portfolio', leaderboard: 'Leaderboard', about: 'How it works', terms: 'Terms of Service', privacy: 'Privacy Policy' }
       document.title = `${titles[page]} · PaperPerps`
       return
     }
@@ -97,10 +100,10 @@ function App() {
         </a>
         {page === 'trade' && <MarketSelector coin={coin} tickers={tickers} onSelect={setCoin} />}
         <nav className="nav">
-          {(['trade', 'leaderboard'] as const).map((p) => (
+          {(['trade', 'portfolio', 'leaderboard'] as const).map((p) => (
             <a
               key={p}
-              href={p === 'trade' ? '/' : '/leaderboard'}
+              href={p === 'trade' ? '/' : `/${p}`}
               className={page === p || (p === 'leaderboard' && page === 'trader') ? 'active' : undefined}
               aria-current={page === p ? 'page' : undefined}
               onClick={(e) => {
@@ -108,7 +111,7 @@ function App() {
                 setPage(p)
               }}
             >
-              {p === 'trade' ? 'Trade' : 'Leaderboard'}
+              {NAV_LABELS[p]}
             </a>
           ))}
         </nav>
@@ -120,9 +123,19 @@ function App() {
 
       {page === 'leaderboard' ? (
         <LeaderboardPage />
-      ) : page === 'about' || page === 'terms' || page === 'privacy' || page === 'trader' ? (
+      ) : page !== 'trade' ? (
         <Suspense fallback={<main className="page"><div className="panel-empty">Loading…</div></main>}>
-          {page === 'about' ? <AboutPage /> : page === 'terms' ? <TermsPage /> : page === 'privacy' ? <PrivacyPage /> : <TraderPage />}
+          {page === 'about' ? (
+            <AboutPage />
+          ) : page === 'terms' ? (
+            <TermsPage />
+          ) : page === 'privacy' ? (
+            <PrivacyPage />
+          ) : page === 'portfolio' ? (
+            <PortfolioPage />
+          ) : (
+            <TraderPage />
+          )}
         </Suspense>
       ) : (
         <>
