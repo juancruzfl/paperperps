@@ -34,7 +34,17 @@ export type Summary = {
 export const score = (priorPnl: number, balance: number, unrealized: number, startingBalance: number) =>
   priorPnl + balance + unrealized - startingBalance
 
+// Mirror the server defaults (server/internal/config, engine.Config).
+export const TAKER_FEE = 0.00045
+export const MAKER_FEE = 0.00015
+
+/** Leverage cap in degen mode (mirrors engine.MaxDegenLeverage). */
+export const MAX_DEGEN_LEVERAGE = 1000
+
 export const maintenanceRate = (maxLeverage: number) => 1 / (2 * Math.max(1, maxLeverage))
+
+/** A position's maintenance rate: above the market's cap (degen mode) it follows its own leverage. */
+export const positionMaintenanceRate = (marketMax: number, leverage: number) => maintenanceRate(Math.max(marketMax, leverage))
 
 export const maintenanceMargin = (c: CoinState) => Math.abs(c.size) * c.markPx * c.maintenanceRate
 
@@ -196,7 +206,7 @@ export function coinStates(me: Me, tickers: Ticker[]): CoinState[] {
   for (const c of coins.values()) {
     const t = byCoin.get(c.coin)
     c.markPx = Number(t?.markPx) || c.entryPx
-    c.maintenanceRate = maintenanceRate(t?.maxLeverage ?? c.leverage)
+    c.maintenanceRate = positionMaintenanceRate(t?.maxLeverage ?? c.leverage, c.leverage)
   }
   return [...coins.values()]
 }

@@ -214,6 +214,13 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
     people trade and which each cost a live subscription: **DOGE, MET, PONS, ONDO, ADA,
     TAO, FARTCOIN, XPL** (24h volume that day: $0.3M–$4.4M). SUI ($7.8M) stayed. Open
     positions in the dropped coins become close-only at the next restart, as above.
+- *Added 2026-10-23:* **Degen mode**, an opt-in per account (leverage dialog), lifts the
+  leverage cap to 1000x on every market. Above a market's real cap the maintenance rate
+  follows the position's own leverage (1/(2·leverage)), so a position doesn't open already
+  liquidatable; fees stay at the normal rates. The first fill that grows a position above a
+  cap sets `accounts.degen_at`, which puts a permanent "degen" badge on the leaderboard and
+  profile; PnL counts normally. Turning it off is refused while a coin above its cap has a
+  position or opening orders; flat coins drop back to the cap.
 - Each market uses its `szDecimals`, tick/price rules and `maxLeverage` from the **data
   network's** `meta`. The two networks don't always agree: on 2026-10-09 SOL was 20× on
   mainnet but 10× on testnet, and NEAR was 10× on mainnet but 20× on testnet. Leverage

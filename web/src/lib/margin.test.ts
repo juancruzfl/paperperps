@@ -6,6 +6,7 @@ import {
   maintenanceMargin,
   maxOrderSize,
   orderMargin,
+  positionMaintenanceRate,
   positionMargin,
   projectedLiquidationPrice,
   score,
@@ -139,5 +140,12 @@ describe('score mirrors engine.Score', () => {
     // TestResetLocksPnLAndHasCooldown: after the reset, prior -10.419 on a fresh 1,000.
     expect(score(-10.419, 1000, 0, 1000)).toBeCloseTo(-10.419)
     expect(score(-10.419, 1030, 5, 1000)).toBeCloseTo(24.581)
+  })
+})
+
+describe('positionMaintenanceRate', () => {
+  it('uses the market cap up to it, and the position’s own leverage above it (degen mode)', () => {
+    expect(positionMaintenanceRate(40, 20)).toBe(0.0125)
+    expect(positionMaintenanceRate(40, 1000)).toBe(0.0005)
   })
 })

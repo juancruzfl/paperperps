@@ -693,11 +693,65 @@ button.link:hover {
   accent-color: var(--long);
 }
 
-.leverage-value {
-  min-width: 40px;
+.leverage-input {
+  width: 72px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
   font-family: var(--mono);
   font-size: 16px;
   font-weight: 600;
+  text-align: right;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.leverage-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.leverage-presets .chip {
+  background: var(--bg);
+}
+
+.leverage-presets .chip.active {
+  color: var(--bg);
+  background: var(--warn);
+}
+
+/* Degen mode: leverage above a market's real cap. Warn-yellow wherever it shows.
+   Scoped to .dialog to win over `.dialog p`'s margin. */
+.dialog .degen-warning {
+  margin: 16px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--warn);
+  border-radius: 4px;
+  color: var(--text);
+  background: rgba(245, 185, 66, 0.1);
+}
+
+.degen-toggle {
+  align-items: flex-start;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.degen-toggle input {
+  margin-top: 3px;
+  accent-color: var(--warn);
+}
+
+.chip.degen {
+  color: var(--warn);
+}
+
+.badge.degen {
+  color: var(--warn);
+  background: rgba(245, 185, 66, 0.14);
 }
 
 /* ---------- account menu & notice ---------- */

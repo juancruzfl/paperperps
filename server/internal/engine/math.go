@@ -109,8 +109,12 @@ type CoinState struct {
 	MaintenanceRate decimal.Decimal
 }
 
+// MaxDegenLeverage is the leverage cap in degen mode, far beyond any real market's.
+const MaxDegenLeverage = 1000
+
 // MaintenanceRate is Hyperliquid's maintenance margin rule: half the initial margin at max
-// leverage. Margin tiers only start at millions of dollars of notional, far beyond what a
+// leverage. In degen mode a position above the market's cap uses its own leverage instead,
+// so it doesn't open already liquidatable. Margin tiers only start at millions of dollars of notional, far beyond what a
 // paper account reaches, so the first tier is the only one modeled.
 func MaintenanceRate(maxLeverage int) decimal.Decimal {
 	return one.Div(decimal.NewFromInt(int64(2 * max(maxLeverage, 1))))

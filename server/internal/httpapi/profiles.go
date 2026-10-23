@@ -19,13 +19,15 @@ type traderProfile struct {
 	CreatedAt   time.Time `json:"createdAt"`
 	LifetimePnl string    `json:"lifetimePnl"` // leaderboard score at live marks
 	Resets      int       `json:"resets"`
+	// Degen: has traded above a market's real leverage cap (degen mode).
+	Degen bool `json:"degen"`
 	// Rank on the all-time board; 0 while the account doesn't qualify yet.
 	Rank int `json:"rank"`
 	accounts.TraderStats
 	// Performance covers closed positions (round trips), after fees.
 	Performance accounts.TradePerformance `json:"performance"`
-	Equity    []publicEquityPoint `json:"equity"`
-	Positions []publicPosition    `json:"positions"`
+	Equity      []publicEquityPoint       `json:"equity"`
+	Positions   []publicPosition          `json:"positions"`
 }
 
 type publicEquityPoint struct {
@@ -74,6 +76,7 @@ func loadProfile(ctx context.Context, d Deps, handle string) (traderProfile, err
 		CreatedAt:   a.CreatedAt,
 		LifetimePnl: engine.Score(a.PriorPnl, a.Balance, sum.UnrealizedPnl, a.StartingBalance).StringFixed(2),
 		Resets:      a.Resets,
+		Degen:       a.DegenAt != nil,
 		TraderStats: stats,
 		Performance: perf,
 		Equity:      make([]publicEquityPoint, 0, len(points)),

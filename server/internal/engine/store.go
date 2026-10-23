@@ -23,6 +23,7 @@ type fillRecord struct {
 	leverage     int
 	isolated     bool
 	balanceDelta decimal.Decimal // closed PnL - fee
+	aboveCap     bool            // grew a position at leverage above the market's cap
 }
 
 func insertOrder(ctx context.Context, tx pgx.Tx, accountID, runID uuid.UUID, o accounts.Order) error {
@@ -69,6 +70,12 @@ func recordFill(ctx context.Context, tx pgx.Tx, accountID, runID uuid.UUID, r fi
 	}
 	if err := addBalance(ctx, tx, runID, r.balanceDelta); err != nil {
 		return err
+	}
+	if r.aboveCap {
+		if _, err := tx.Exec(ctx, `UPDATE accounts SET degen_at = coalesce(degen_at, $2) WHERE id = $1`,
+			accountID, f.CreatedAt); err != nil {
+			return fmt.Errorf("mark degen: %w", err)
+		}
 	}
 	return upsertPosition(ctx, tx, accountID, runID, f.Coin, &position{
 		size: r.newSize, entryPx: r.newEntry, leverage: r.leverage, isolated: r.isolated, isoMargin: r.newIsoMargin,

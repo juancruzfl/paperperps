@@ -137,6 +137,8 @@ export type Me = {
   leaderboardOptIn: boolean
   leaderboardHidden: boolean // by a moderator; opting in doesn't undo it
   suspension: { at: string; reason: string } | null
+  degenMode: boolean // leverage above each market's cap, up to 1000x
+  degenAt: string | null // first fill above a cap; shows the degen badge
   lastResetAt: string | null
   resets: number
   runId: string
@@ -177,6 +179,7 @@ export type TraderProfile = {
   createdAt: string
   lifetimePnl: string
   resets: number
+  degen?: boolean // has traded above a market's real leverage cap
   rank: number // all-time; 0 until the trader qualifies
   trades: number
   closedTrades: number
@@ -214,6 +217,7 @@ export type LeaderboardEntry = {
   volume: string
   trades: number
   resets: number
+  degen?: boolean // has traded above a market's real leverage cap
   you?: boolean
 }
 

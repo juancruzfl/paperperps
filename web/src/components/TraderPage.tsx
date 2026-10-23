@@ -100,6 +100,7 @@ export function TraderPage() {
             <h1 className="trader-name">
               {current.handle}
               {isYou && <span className="badge">you</span>}
+              {current.degen && <span className="badge degen" title="Has traded above a market’s real leverage cap (degen mode)">degen</span>}
             </h1>
             <p className="muted small">
               {current.rank > 0 ? (
