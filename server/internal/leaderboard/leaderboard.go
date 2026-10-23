@@ -42,7 +42,9 @@ type Entry struct {
 	Volume decimal.Decimal `json:"volume"` // traded notional in the window
 	Trades int             `json:"trades"` // fills, all time
 	Resets int             `json:"resets"`
-	You    bool            `json:"you,omitempty"`
+	// Degen: has traded above a market's real leverage cap (degen mode).
+	Degen bool `json:"degen,omitempty"`
+	You   bool `json:"you,omitempty"`
 }
 
 // Viewer is the requesting account's own standing, ranked or not.
@@ -207,7 +209,7 @@ func (s *Service) compute(ctx context.Context, window string) (snapshot, error) 
 	var order []uuid.UUID
 	rows, err := s.pool.Query(ctx, `
 		SELECT a.id, a.handle, a.created_at, a.leaderboard_opt_in,
-			a.leaderboard_banned OR a.suspended_at IS NOT NULL,
+			a.leaderboard_banned OR a.suspended_at IS NOT NULL, a.degen_at IS NOT NULL,
 			(SELECT sum(r.balance + r.locked_upnl - r.starting_balance) FROM runs r WHERE r.account_id = a.id),
 			(SELECT count(*) - 1 FROM runs r WHERE r.account_id = a.id),
 			f.trades, f.volume
@@ -221,7 +223,7 @@ func (s *Service) compute(ctx context.Context, window string) (snapshot, error) 
 	for rows.Next() {
 		st := &standing{}
 		var realized decimal.Decimal
-		if err := rows.Scan(&st.id, &st.entry.Handle, &st.createdAt, &st.optIn, &st.hidden, &realized,
+		if err := rows.Scan(&st.id, &st.entry.Handle, &st.createdAt, &st.optIn, &st.hidden, &st.entry.Degen, &realized,
 			&st.entry.Resets, &st.entry.Trades, &st.entry.Volume); err != nil {
 			rows.Close()
 			return snapshot{}, fmt.Errorf("leaderboard accounts: %w", err)

@@ -4,7 +4,6 @@ import { AccountPanel } from './components/AccountPanel'
 import { Guide } from './components/Guide'
 import { Chart } from './components/Chart'
 import { LeaderboardPage } from './components/LeaderboardPage'
-import { MarketSelector } from './components/MarketSelector'
 import { OrderBook } from './components/OrderBook'
 import { OrderForm } from './components/OrderForm'
 import { StatsBar } from './components/StatsBar'
@@ -98,7 +97,6 @@ function App() {
           <img src="/favicon.svg" alt="" />
           <span className="logo-text">PaperPerps</span>
         </a>
-        {page === 'trade' && <MarketSelector coin={coin} tickers={tickers} onSelect={setCoin} />}
         <nav className="nav">
           {(['trade', 'portfolio', 'leaderboard'] as const).map((p) => (
             <a
@@ -139,7 +137,7 @@ function App() {
         </Suspense>
       ) : (
         <>
-      <StatsBar ticker={ticker} />
+      <StatsBar coin={coin} tickers={tickers} onSelect={setCoin} />
 
       <main className="terminal" data-mobile-view={mobileView === 'chart' ? 'chart' : 'market'}>
         {/* Phones show one of chart, book or trades at a time; wider screens show all. */}
@@ -163,7 +161,14 @@ function App() {
 
         <section className="panel chart-panel" aria-label="Chart">
           {ticker ? (
-            <Chart coin={coin} szDecimals={ticker.szDecimals} refPx={Number(ticker.markPx)} lines={lines} />
+            <Chart
+              coin={coin}
+              szDecimals={ticker.szDecimals}
+              refPx={Number(ticker.markPx)}
+              lines={lines}
+              degen={me?.degenMode ?? false}
+              aboveCap={(me?.positions.find((p) => p.coin === coin)?.leverage ?? 0) > ticker.maxLeverage}
+            />
           ) : (
             <div className="panel-empty">Loading chart…</div>
           )}

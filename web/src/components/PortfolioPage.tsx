@@ -92,7 +92,10 @@ export function PortfolioPage() {
       <div className="trader-head">
         <div className="trader-id">
           <div>
-            <h1>Portfolio</h1>
+            <h1 className="trader-name">
+              Portfolio
+              {me.degenAt && <span className="badge degen" title="Has traded above a market’s real leverage cap (degen mode)">degen</span>}
+            </h1>
             <p className="muted small">
               {me.handle} · trading since {joined}
               {me.resets > 0 && ` · ${me.resets} reset${me.resets === 1 ? '' : 's'}`}

@@ -324,6 +324,24 @@ func handleSetLeverage(eng *engine.Engine) http.HandlerFunc {
 	}
 }
 
+func handleSetDegenMode(eng *engine.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Enabled bool `json:"enabled"`
+		}
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), engineTimeout)
+		defer cancel()
+		if err := eng.SetDegenMode(ctx, accountID(r), body.Enabled); err != nil {
+			engineError(w, "set degen mode", err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func handleSetMarginMode(eng *engine.Engine) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {

@@ -2,7 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { api, ApiError, type NewOrder } from '../lib/api'
 import { describeFill, refreshAccount, useAccount } from '../lib/account'
 import { formatNumber, formatUsd, pxDecimals } from '../lib/format'
-import { coinStates, maintenanceRate, maxOrderSize, projectedLiquidationPrice, summarize, type CoinState } from '../lib/margin'
+import {
+  coinStates,
+  MAKER_FEE,
+  maxOrderSize,
+  positionMaintenanceRate,
+  projectedLiquidationPrice,
+  summarize,
+  TAKER_FEE,
+  type CoinState,
+} from '../lib/margin'
 import { useBook, useTickers } from '../lib/market'
 import { triggerDirection, typeLabel } from '../lib/orders'
 import { onPricePick } from '../lib/ticket'
@@ -12,8 +21,6 @@ import { LeverageControl } from './LeverageControl'
 import { MarginModeControl } from './MarginControls'
 
 // Mirrors the server defaults (server/internal/config, engine.Config).
-const TAKER_FEE = 0.00045
-const MAKER_FEE = 0.00015
 const DEFAULT_LEVERAGE = 20
 const MIN_NOTIONAL = 10
 
@@ -112,7 +119,7 @@ export function OrderForm({ ticker }: { ticker: Ticker | undefined }) {
   if (me && sz > 0 && refPx > 0 && !reduceOnly) {
     const flat: CoinState = {
       coin, size: 0, entryPx: 0, leverage, markPx: mid, orders: [],
-      isolated: mode === 'isolated', isolatedMargin: 0, maintenanceRate: maintenanceRate(ticker?.maxLeverage ?? leverage),
+      isolated: mode === 'isolated', isolatedMargin: 0, maintenanceRate: positionMaintenanceRate(ticker?.maxLeverage ?? leverage, leverage),
     }
     const withCoin = states.some((c) => c.coin === coin) ? states : [...states, flat]
     liqPx = projectedLiquidationPrice(withCoin, Number(me.balance), coin, buy, sz, refPx, fee)

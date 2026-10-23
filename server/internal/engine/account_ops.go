@@ -305,3 +305,70 @@ func recordAdmin(ctx context.Context, tx pgx.Tx, action string, accountID uuid.U
 		Action: action, AccountID: &accountID, Handle: &handle, Reason: reason, Detail: detail,
 	})
 }
+
+// --- degen mode ---
+
+// SetDegenMode turns degen mode on or off. On, leverage can go up to MaxDegenLeverage on
+// every market. Off, leverage settings above a market's cap drop back to the cap; that's
+// refused while such a coin has a position or orders that could add to one, which the
+// trader has to close or move to a lower leverage first.
+func (e *Engine) SetDegenMode(ctx context.Context, accountID uuid.UUID, on bool) error {
+	return e.do(ctx, func(ctx context.Context) error { return e.setDegenMode(ctx, accountID, on) })
+}
+
+func (e *Engine) setDegenMode(ctx context.Context, accountID uuid.UUID, on bool) error {
+	a, err := e.account(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if a.degenMode == on {
+		return nil
+	}
+	lower := map[string]int{} // coin -> its cap, for flat positions set above it
+	if !on {
+		for coin, p := range a.positions {
+			t, ok := e.md.Ticker(coin)
+			if !ok || p.leverage <= t.MaxLeverage {
+				continue
+			}
+			if !p.size.IsZero() || a.hasOpeningOrders(coin) {
+				return reject("degen_positions_open",
+					"your %s leverage is %dx, above its %dx max: close that position and its orders first", coin, p.leverage, t.MaxLeverage)
+			}
+			lower[coin] = t.MaxLeverage
+		}
+	}
+	err = pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE accounts SET degen_mode = $2 WHERE id = $1`, a.id, on); err != nil {
+			return fmt.Errorf("set degen mode: %w", err)
+		}
+		for coin, lev := range lower {
+			p := *a.positions[coin]
+			p.leverage = lev
+			if err := upsertPosition(ctx, tx, a.id, a.runID, coin, &p, e.now()); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	a.degenMode = on
+	for coin, lev := range lower {
+		a.positions[coin].leverage = lev
+	}
+	e.publish(a.id, AccountEvent{Type: "leverage"})
+	return nil
+}
+
+// hasOpeningOrders reports whether the account has open orders on coin that could add to
+// a position.
+func (a *account) hasOpeningOrders(coin string) bool {
+	for _, o := range a.orders {
+		if o.Coin == coin && !o.ReduceOnly {
+			return true
+		}
+	}
+	return false
+}

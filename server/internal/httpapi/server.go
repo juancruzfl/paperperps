@@ -101,6 +101,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/me/funding", auth(handleHistory("funding", d.Accounts.Funding)))
 	mux.HandleFunc("PUT /api/me/leverage/{coin}", trade(handleSetLeverage(d.Engine)))
 	mux.HandleFunc("PUT /api/me/margin-mode/{coin}", trade(handleSetMarginMode(d.Engine)))
+	mux.HandleFunc("PUT /api/me/degen-mode", trade(handleSetDegenMode(d.Engine)))
 	mux.HandleFunc("POST /api/me/isolated-margin/{coin}", trade(handleAdjustIsolatedMargin(d.Engine)))
 	mux.HandleFunc("POST /api/orders", trade(handlePlaceOrder(d.Engine)))
 	mux.HandleFunc("DELETE /api/orders/{id}", trade(handleCancelOrder(d.Engine)))
