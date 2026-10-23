@@ -210,6 +210,10 @@ cooldowns, thresholds) lives in config so it can be tuned to match HL.
   - *Added 2026-10-13:* **ZEC** joined the default list (mainnet: 10× max, `szDecimals` 2).
     It's still delisted on testnet, so with `HL_NETWORK=testnet` it's disabled at startup
     with a warning. Close any ZEC positions before switching a deployment to testnet.
+  - *Trimmed 2026-10-23:* dropped markets under $7M of mainnet 24h volume, which few
+    people trade and which each cost a live subscription: **DOGE, MET, PONS, ONDO, ADA,
+    TAO, FARTCOIN, XPL** (24h volume that day: $0.3M–$4.4M). SUI ($7.8M) stayed. Open
+    positions in the dropped coins become close-only at the next restart, as above.
 - Each market uses its `szDecimals`, tick/price rules and `maxLeverage` from the **data
   network's** `meta`. The two networks don't always agree: on 2026-10-09 SOL was 20× on
   mainnet but 10× on testnet, and NEAR was 10× on mainnet but 20× on testnet. Leverage
