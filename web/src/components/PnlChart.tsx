@@ -9,10 +9,12 @@ type Props = {
   /** The live value, appended as the last point. */
   live: number | null
   empty: string
+  /** The number whose sign picks green or red; defaults to the last value. */
+  trend?: number
 }
 
-/** Lifetime PnL over time as an area chart, green above zero and red below. */
-export function PnlChart({ points, live, empty }: Props) {
+/** PnL (or account value) over time as an area chart, green above zero and red below. */
+export function PnlChart({ points, live, empty, trend }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -51,14 +53,14 @@ export function PnlChart({ points, live, empty }: Props) {
       if (!data.length || now > data[data.length - 1].time) data.push({ time: now as UTCTimestamp, value: live })
     }
     series.setData(data)
-    const negative = (live ?? data.at(-1)?.value ?? 0) < 0
+    const negative = (trend ?? live ?? data.at(-1)?.value ?? 0) < 0
     series.applyOptions({
       lineColor: negative ? '#ff5c7a' : '#3ddc97',
       topColor: negative ? 'rgba(255, 92, 122, 0.2)' : 'rgba(61, 220, 151, 0.25)',
       bottomColor: negative ? 'rgba(255, 92, 122, 0.02)' : 'rgba(61, 220, 151, 0.02)',
     })
     chartRef.current?.timeScale().fitContent()
-  }, [points, live])
+  }, [points, live, trend])
 
   return (
     <div className="perf-chart">
