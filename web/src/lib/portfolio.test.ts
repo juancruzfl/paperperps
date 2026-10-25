@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activityInWindow, equityWindow } from './portfolio'
+import { activityInWindow, dailyPnl, equityWindow } from './portfolio'
 import type { Fill, FundingPayment } from './types'
 
 const now = Date.parse('2026-10-11T12:00:00Z')
@@ -64,5 +64,24 @@ describe('activityInWindow', () => {
   it('flags a range the history may not fully cover', () => {
     expect(activityInWindow(fills, funding, 'all', 3, now).partial).toBe(true)
     expect(activityInWindow(fills, funding, '24h', 3, now).partial).toBe(false)
+  })
+})
+
+describe('dailyPnl', () => {
+  // Local-time timestamps, so day boundaries match the viewer's calendar.
+  const at = (day: number, hour: number) => new Date(2026, 9, day, hour).toISOString()
+  const pt = (day: number, hour: number, pnl: number) => ({ t: at(day, hour), cumulativePnl: String(pnl) })
+
+  it('takes each day’s change in cumulative PnL, ending today at the live value', () => {
+    const days = dailyPnl([pt(20, 9, 10), pt(20, 22, 40), pt(21, 12, 25), pt(23, 8, 60)], 75, Date.parse(at(23, 18)))
+    expect([...days]).toEqual([
+      ['2026-10-20', 40],
+      ['2026-10-21', -15],
+      ['2026-10-23', 50],
+    ])
+  })
+
+  it('is empty without history', () => {
+    expect(dailyPnl([], 0).size).toBe(0)
   })
 })

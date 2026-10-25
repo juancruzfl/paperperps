@@ -56,3 +56,24 @@ export function activityInWindow(
   a.partial = reachesBack(fills, fills.at(-1)?.createdAt) || reachesBack(funding, funding.at(-1)?.fundingHour)
   return a
 }
+
+/** A local calendar day as YYYY-MM-DD. */
+export const dayKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+/**
+ * PnL made on each local day: the day's last cumulative PnL minus the previous day's (or
+ * zero before the first snapshot). Today ends at the live figure. history is oldest first.
+ */
+export function dailyPnl(history: PnlPoint[], live: number, now = Date.now()): Map<string, number> {
+  const closes = new Map<string, number>() // insertion order follows the history
+  for (const p of history) closes.set(dayKey(new Date(p.t)), Number(p.cumulativePnl))
+  if (history.length > 0) closes.set(dayKey(new Date(now)), live)
+  const out = new Map<string, number>()
+  let prev = 0
+  for (const [day, close] of closes) {
+    out.set(day, close - prev)
+    prev = close
+  }
+  return out
+}
