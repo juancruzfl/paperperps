@@ -2412,8 +2412,9 @@ th[title] {
 
 /* ---------- portfolio ---------- */
 
-/* Your own account as a dashboard: boxed cards on a 9-column grid. The value card (6) and
-   the three stat cards under it (2 each) sit beside the risk card (3, two rows tall). */
+/* Your own account as a dashboard on a 9-column grid. The value block (6) and the three
+   stats under it (2 each) sit beside the risk block (3, two rows tall). Flat like the rest
+   of the app: sections are set off by hairlines and space, not boxes. */
 .portfolio-page {
   max-width: 1280px;
 }
@@ -2468,16 +2469,15 @@ th[title] {
 .portfolio-grid {
   display: grid;
   grid-template-columns: repeat(9, minmax(0, 1fr));
-  gap: 12px;
+  column-gap: 24px;
   margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .pcard {
   min-width: 0;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
+  padding: 18px 0;
+  border-top: 1px solid var(--border);
 }
 
 .pcard-value {
@@ -2494,10 +2494,19 @@ th[title] {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding-left: 24px;
+  border-left: 1px solid var(--border);
 }
 
 .pcard-stat {
   grid-column: span 2;
+}
+
+/* The three stats read as one row, split by rules centered in the column gap. */
+.pcard-stat + .pcard-stat {
+  margin-left: -12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
 }
 
 .pcard-chart,
@@ -2581,7 +2590,7 @@ th[title] {
   gap: 12px;
   padding: 7px 0;
   font-size: 13px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(31, 40, 51, 0.6);
 }
 
 .pcard-rows dt {
@@ -2616,7 +2625,7 @@ th[title] {
   height: 6px;
   border-radius: 3px;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--surface);
 }
 
 .portfolio-meter-fill {
@@ -2657,7 +2666,7 @@ th[title] {
 
 .portfolio-views button.active {
   color: var(--text);
-  background: var(--bg);
+  background: var(--surface);
 }
 
 .pcard-chart-body {
@@ -2678,7 +2687,7 @@ th[title] {
   gap: 12px;
   margin: 0;
   padding-top: 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(31, 40, 51, 0.6);
 }
 
 .pcard-strip dt {
@@ -2702,12 +2711,8 @@ th[title] {
   overflow: hidden;
 }
 
-.pcard-table .account-panel {
-  background: transparent;
-}
-
 .pcard-table .data-table th {
-  background: var(--surface);
+  background: var(--bg);
 }
 
 .pcard-table .account-panel .table-wrap {
@@ -2773,7 +2778,7 @@ th[title] {
   min-height: 52px;
   padding: 5px 6px;
   border-radius: 6px;
-  background: var(--bg);
+  background: var(--surface);
 }
 
 .pnl-day.gain {
@@ -2812,6 +2817,11 @@ th[title] {
     grid-row: auto;
   }
 
+  .pcard-risk {
+    padding-left: 0;
+    border-left: 0;
+  }
+
   .pcard-stat {
     grid-column: span 3;
   }
@@ -2825,7 +2835,15 @@ th[title] {
   /* Three across, tightened to fit. */
   .pcard-stat {
     grid-column: span 3;
-    padding: 10px;
+  }
+
+  .portfolio-grid {
+    column-gap: 12px;
+  }
+
+  .pcard-stat + .pcard-stat {
+    margin-left: -6px;
+    padding-left: 6px;
   }
 
   .pcard-stat .pcard-label {
